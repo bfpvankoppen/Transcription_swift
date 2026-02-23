@@ -27,14 +27,40 @@ class Transcriber:
     def is_loaded(self) -> bool:
         return self._model is not None
 
-    def load_model(self) -> None:
-        """Download (if needed) and load the Parakeet model."""
+    @staticmethod
+    def is_model_cached() -> bool:
+        """Check if the model is already downloaded in the HuggingFace cache."""
+        try:
+            from huggingface_hub import try_to_load_from_cache
+            result = try_to_load_from_cache(
+                "nvidia/parakeet-1.1b-rnnt-multilingual-asr",
+                filename="model_config.yaml",
+            )
+            return result is not None and isinstance(result, str)
+        except Exception:
+            return False
+
+    def load_model(self, on_status: callable = None) -> None:
+        """Download (if needed) and load the Parakeet model.
+
+        Args:
+            on_status: Optional callback(message: str) for progress updates.
+        """
         import nemo.collections.asr as nemo_asr
+
+        if on_status:
+            if self.is_model_cached():
+                on_status("Loading model from cache...")
+            else:
+                on_status("Downloading model (~500MB)...")
 
         self._model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
             model_name=self.MODEL_NAME
         )
         self._model.eval()
+
+        if on_status:
+            on_status("Optimizing model for Apple Silicon...")
 
         # Try MPS (Metal) for Apple Silicon acceleration, fall back to CPU
         if torch.backends.mps.is_available():
