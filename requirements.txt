@@ -1,0 +1,10 @@
+torch
+torchaudio
+nemo_toolkit[asr]
+PyQt6
+sounddevice
+pynput
+pyobjc-framework-Cocoa
+pyobjc-framework-Quartz
+numpy
+soundfile
