@@ -1,44 +1,45 @@
 """
-Transcription engine using NVIDIA Parakeet 1.1b RNNT Multilingual ASR.
+Transcription engine using NVIDIA Parakeet TDT 0.6B v3 (INT8 ONNX).
 
-Loads the model once at startup and keeps it in memory.
-Transcribes numpy audio arrays to text.
+Multilingual (25 languages) with automatic language detection.
+Uses sherpa-onnx for lightweight, offline inference on Apple Silicon.
 """
 
 from __future__ import annotations
 
 import os
-import tempfile
+import tarfile
+import urllib.request
 
 import numpy as np
-import soundfile as sf
-import torch
+import sherpa_onnx
+
+# Model directory relative to project root
+_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MODELS_DIR = os.path.join(_PROJECT_DIR, "models")
+_MODEL_NAME = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+_MODEL_DIR = os.path.join(_MODELS_DIR, _MODEL_NAME)
+_MODEL_URL = (
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+    f"{_MODEL_NAME}.tar.bz2"
+)
 
 
 class Transcriber:
-    """Wraps the Parakeet RNNT model for speech-to-text."""
-
-    MODEL_NAME = "nvidia/parakeet-1.1b-rnnt-multilingual-asr"
+    """Wraps the Parakeet TDT model for multilingual speech-to-text."""
 
     def __init__(self) -> None:
-        self._model = None
+        self._recognizer: sherpa_onnx.OfflineRecognizer | None = None
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None
+        return self._recognizer is not None
 
     @staticmethod
     def is_model_cached() -> bool:
-        """Check if the model is already downloaded in the HuggingFace cache."""
-        try:
-            from huggingface_hub import try_to_load_from_cache
-            result = try_to_load_from_cache(
-                "nvidia/parakeet-1.1b-rnnt-multilingual-asr",
-                filename="model_config.yaml",
-            )
-            return result is not None and isinstance(result, str)
-        except Exception:
-            return False
+        """Check if the model files are already downloaded."""
+        encoder = os.path.join(_MODEL_DIR, "encoder.int8.onnx")
+        return os.path.isfile(encoder)
 
     def load_model(self, on_status: callable = None) -> None:
         """Download (if needed) and load the Parakeet model.
@@ -46,61 +47,75 @@ class Transcriber:
         Args:
             on_status: Optional callback(message: str) for progress updates.
         """
-        import nemo.collections.asr as nemo_asr
+        if not self.is_model_cached():
+            if on_status:
+                on_status("Downloading model (~640MB)...")
+            self._download_model(on_status)
+        elif on_status:
+            on_status("Loading model from cache...")
 
         if on_status:
-            if self.is_model_cached():
-                on_status("Loading model from cache...")
-            else:
-                on_status("Downloading model (~500MB)...")
+            on_status("Initializing speech recognizer...")
 
-        self._model = nemo_asr.models.EncDecRNNTBPEModel.from_pretrained(
-            model_name=self.MODEL_NAME
+        self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=os.path.join(_MODEL_DIR, "encoder.int8.onnx"),
+            decoder=os.path.join(_MODEL_DIR, "decoder.int8.onnx"),
+            joiner=os.path.join(_MODEL_DIR, "joiner.int8.onnx"),
+            tokens=os.path.join(_MODEL_DIR, "tokens.txt"),
+            num_threads=4,
+            sample_rate=16000,
+            feature_dim=80,
+            decoding_method="greedy_search",
+            model_type="nemo_transducer",
         )
-        self._model.eval()
-
-        if on_status:
-            on_status("Optimizing model for Apple Silicon...")
-
-        # Try MPS (Metal) for Apple Silicon acceleration, fall back to CPU
-        if torch.backends.mps.is_available():
-            try:
-                self._model = self._model.to(torch.device("mps"))
-            except Exception:
-                self._model = self._model.to(torch.device("cpu"))
-        else:
-            self._model = self._model.to(torch.device("cpu"))
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
         """Transcribe a 1-D numpy float32 audio array to text."""
-        if self._model is None:
+        if self._recognizer is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         if len(audio) == 0:
             return ""
 
-        # NeMo transcribe() expects file paths, so write a temp WAV
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            sf.write(f.name, audio, sample_rate)
-            tmp_path = f.name
+        stream = self._recognizer.create_stream()
+        stream.accept_waveform(sample_rate, audio)
+        self._recognizer.decode_stream(stream)
+        return stream.result.text.strip()
 
-        try:
-            results = self._model.transcribe([tmp_path], batch_size=1)
-            # Handle both NeMo 1.x (List[str]) and 2.x (List[Hypothesis])
-            if isinstance(results[0], str):
-                return results[0]
-            return results[0].text if hasattr(results[0], "text") else str(results[0])
-        finally:
-            os.unlink(tmp_path)
+    @staticmethod
+    def _download_model(on_status: callable = None) -> None:
+        """Download and extract the model archive."""
+        os.makedirs(_MODELS_DIR, exist_ok=True)
+        archive_path = os.path.join(_MODELS_DIR, f"{_MODEL_NAME}.tar.bz2")
+
+        # Download with progress
+        def _reporthook(block_num, block_size, total_size):
+            if on_status and total_size > 0:
+                downloaded = block_num * block_size
+                pct = min(100, int(downloaded * 100 / total_size))
+                mb = downloaded / (1024 * 1024)
+                total_mb = total_size / (1024 * 1024)
+                on_status(f"Downloading model... {mb:.0f}/{total_mb:.0f}MB ({pct}%)")
+
+        urllib.request.urlretrieve(_MODEL_URL, archive_path, _reporthook)
+
+        if on_status:
+            on_status("Extracting model...")
+
+        with tarfile.open(archive_path, "r:bz2") as tar:
+            tar.extractall(path=_MODELS_DIR)
+
+        # Clean up archive
+        os.unlink(archive_path)
 
 
 if __name__ == "__main__":
     import time
 
-    print("Loading Parakeet model (first run downloads ~500MB)...")
+    print("Loading Parakeet model (first run downloads ~640MB)...")
     t0 = time.time()
     transcriber = Transcriber()
-    transcriber.load_model()
+    transcriber.load_model(on_status=lambda msg: print(f"  {msg}"))
     print(f"Model loaded in {time.time() - t0:.1f}s")
 
     # Quick test with a short silence

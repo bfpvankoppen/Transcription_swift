@@ -65,7 +65,7 @@ class TranscriptionApp(QObject):
             reply = QMessageBox.question(
                 None,
                 "Download Parakeet Model",
-                "The Parakeet ASR model (~500MB) is not yet downloaded.\n\n"
+                "The Parakeet ASR model (~640MB) is not yet downloaded.\n\n"
                 "Download it now? (Required for transcription)",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )

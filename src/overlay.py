@@ -88,35 +88,11 @@ class RecordingOverlay(QWidget):
         super().__init__(parent)
 
         # --- Window flags ---------------------------------------------------
-        # The combination below achieves the following on macOS:
-        #
-        #   Qt.WindowType.Tool
-        #       Makes the window a "tool" palette – it floats above normal
-        #       windows but does *not* appear in the Dock or the Cmd-Tab
-        #       application switcher.
-        #
-        #   Qt.WindowType.FramelessWindowHint
-        #       Removes the native title bar and window frame so we can draw
-        #       our own rounded-rect background.
-        #
-        #   Qt.WindowType.WindowStaysOnTopHint
-        #       Keeps the overlay above all other windows (always-on-top).
-        #
-        #   Qt.WindowType.WindowDoesNotAcceptFocus
-        #       **Critical on macOS** – prevents the window from stealing
-        #       keyboard focus when it appears.  The previously focused text
-        #       field in another app retains focus, which is exactly what we
-        #       need so that the transcribed text can later be pasted there.
-        #
-        #   Qt.WindowType.WindowTransparentForInput  (optional extra safety)
-        #       Makes the window transparent to *all* mouse/keyboard input.
-        #       Since this overlay has no interactive controls, this is fine
-        #       and provides an additional guarantee that focus stays with
-        #       the underlying app.  Remove this flag if you later want to
-        #       add clickable controls to the overlay.
-        #
+        # We use Qt.WindowType.Window (NOT Tool) because Tool creates an
+        # NSPanel which cannot properly join all macOS Spaces/Desktops.
+        # The app is hidden from Dock via NSApplicationActivationPolicyAccessory.
         self.setWindowFlags(
-            Qt.WindowType.Tool
+            Qt.WindowType.Window
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowDoesNotAcceptFocus
@@ -125,10 +101,6 @@ class RecordingOverlay(QWidget):
 
         # Translucent background – we will paint it ourselves in paintEvent.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        # On macOS, this additional attribute prevents the overlay from
-        # showing a shadow (which would give away the rectangular bounds).
-        self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow)
 
         # Fixed size – not user-resizable.
         self.setFixedSize(OVERLAY_WIDTH, OVERLAY_HEIGHT)
@@ -165,6 +137,12 @@ class RecordingOverlay(QWidget):
         self._timer.setInterval(int(1000 / FPS))
         self._timer.timeout.connect(self._on_tick)
 
+        # --- Visible on ALL macOS Spaces/Desktops -------------------------
+        # Force native window creation, then tell macOS this window
+        # belongs on every Space so the overlay follows the user.
+        self.winId()  # forces Qt to create the underlying NSWindow
+        self._apply_all_spaces_behavior()
+
         # --- Position the overlay ------------------------------------------
         self._center_on_screen()
 
@@ -181,6 +159,7 @@ class RecordingOverlay(QWidget):
 
         self._center_on_screen()
         self.show()
+        self._apply_all_spaces_behavior()
         self.raise_()
 
         self._fade_anim.stop()
@@ -299,6 +278,46 @@ class RecordingOverlay(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _apply_all_spaces_behavior(self) -> None:
+        """Make the overlay visible on ALL macOS Spaces/Desktops.
+
+        Must be called AFTER show() because Qt recreates the underlying
+        NSPanel during show() and sets MoveToActiveSpace, which is
+        mutually exclusive with CanJoinAllSpaces.
+        """
+        try:
+            from AppKit import (
+                NSWindowCollectionBehaviorCanJoinAllSpaces,
+                NSWindowCollectionBehaviorFullScreenAuxiliary,
+                NSWindowCollectionBehaviorMoveToActiveSpace,
+                NSFloatingWindowLevel,
+            )
+            import objc
+            from ctypes import c_void_p
+
+            view_ptr = self.winId().__int__()
+            ns_view = objc.objc_object(c_void_p=c_void_p(view_ptr))
+            ns_window = ns_view.window()
+            if ns_window is None:
+                return
+
+            # Read current behavior and clear the conflicting bit
+            behavior = ns_window.collectionBehavior()
+            behavior &= ~NSWindowCollectionBehaviorMoveToActiveSpace
+            behavior |= (
+                NSWindowCollectionBehaviorCanJoinAllSpaces
+                | NSWindowCollectionBehaviorFullScreenAuxiliary
+            )
+            ns_window.setCollectionBehavior_(behavior)
+            ns_window.setLevel_(NSFloatingWindowLevel)
+
+            # Prevent NSPanel from hiding when the app loses focus
+            if ns_window.respondsToSelector_(b"setHidesOnDeactivate:"):
+                ns_window.setHidesOnDeactivate_(False)
+
+        except Exception:
+            pass
 
     def _center_on_screen(self) -> None:
         """Position the overlay centred horizontally near the top of the primary screen."""

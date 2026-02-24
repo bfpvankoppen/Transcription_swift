@@ -1,6 +1,4 @@
-torch
-torchaudio
-nemo_toolkit[asr]
+sherpa-onnx
 PyQt6
 sounddevice
 pynput
