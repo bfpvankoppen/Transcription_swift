@@ -7,10 +7,13 @@ Provides real-time amplitude levels for driving the waveform overlay.
 
 from __future__ import annotations
 
+import logging
 import threading
 
 import numpy as np
 import sounddevice as sd
+
+logger = logging.getLogger(__name__)
 
 
 class AudioRecorder:
@@ -30,6 +33,7 @@ class AudioRecorder:
 
     def start(self) -> None:
         """Start recording from the default microphone."""
+        logger.info("Recording started (sample_rate=%d)", self._sample_rate)
         self._chunks = []
         self._current_levels = []
         self._stream = sd.InputStream(
@@ -52,7 +56,9 @@ class AudioRecorder:
             # Flatten to 1-D mono
             if audio.ndim > 1:
                 audio = audio[:, 0]
+            logger.info("Recording stopped: %d samples (%.1fs)", len(audio), len(audio) / self._sample_rate)
             return audio
+        logger.warning("Recording stopped: no audio captured")
         return np.zeros((0,), dtype=np.float32)
 
     def get_levels(self, num_bars: int = 28) -> list[float]:
@@ -61,6 +67,8 @@ class AudioRecorder:
             return list(self._current_levels)
 
     def _audio_callback(self, indata, frames, time_info, status) -> None:
+        if status:
+            logger.warning("Audio callback status: %s", status)
         self._chunks.append(indata.copy())
 
         mono = indata[:, 0] if indata.ndim > 1 else indata.flatten()

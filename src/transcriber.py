@@ -7,12 +7,16 @@ Uses sherpa-onnx for lightweight, offline inference on Apple Silicon.
 
 from __future__ import annotations
 
+import logging
 import os
 import tarfile
+import time as _time
 import urllib.request
 
 import numpy as np
 import sherpa_onnx
+
+logger = logging.getLogger(__name__)
 
 # Model directory relative to project root
 _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,15 +52,19 @@ class Transcriber:
             on_status: Optional callback(message: str) for progress updates.
         """
         if not self.is_model_cached():
+            logger.info("Model not cached, downloading...")
             if on_status:
                 on_status("Downloading model (~640MB)...")
             self._download_model(on_status)
-        elif on_status:
-            on_status("Loading model from cache...")
+        else:
+            logger.info("Loading model from cache")
+            if on_status:
+                on_status("Loading model from cache...")
 
         if on_status:
             on_status("Initializing speech recognizer...")
 
+        t0 = _time.monotonic()
         self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
             encoder=os.path.join(_MODEL_DIR, "encoder.int8.onnx"),
             decoder=os.path.join(_MODEL_DIR, "decoder.int8.onnx"),
@@ -68,6 +76,7 @@ class Transcriber:
             decoding_method="greedy_search",
             model_type="nemo_transducer",
         )
+        logger.info("Model loaded in %.1fs", _time.monotonic() - t0)
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
         """Transcribe a 1-D numpy float32 audio array to text."""
@@ -75,12 +84,17 @@ class Transcriber:
             raise RuntimeError("Model not loaded. Call load_model() first.")
 
         if len(audio) == 0:
+            logger.warning("Transcribe called with empty audio")
             return ""
 
+        t0 = _time.monotonic()
         stream = self._recognizer.create_stream()
         stream.accept_waveform(sample_rate, audio)
         self._recognizer.decode_stream(stream)
-        return stream.result.text.strip()
+        text = stream.result.text.strip()
+        elapsed = _time.monotonic() - t0
+        logger.info("Transcription done in %.2fs: %d chars", elapsed, len(text))
+        return text
 
     @staticmethod
     def _download_model(on_status: callable = None) -> None:

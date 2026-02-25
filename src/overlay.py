@@ -24,9 +24,12 @@ in the range [0.0, 1.0].
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from PyQt6.QtCore import (
     QEasingCurve,
@@ -152,6 +155,7 @@ class RecordingOverlay(QWidget):
 
     def fade_in(self) -> None:
         """Show the overlay with a smooth fade-in animation."""
+        logger.info("Overlay fade_in")
         self._is_transcribing = False
         self._label.hide()
         self._levels = [0.0] * BAR_COUNT
@@ -177,6 +181,7 @@ class RecordingOverlay(QWidget):
         on_finished:
             Optional callback invoked once the fade-out completes.
         """
+        logger.info("Overlay fade_out")
         self._timer.stop()
 
         self._fade_anim.stop()
@@ -290,11 +295,14 @@ class RecordingOverlay(QWidget):
             from AppKit import (
                 NSWindowCollectionBehaviorCanJoinAllSpaces,
                 NSWindowCollectionBehaviorFullScreenAuxiliary,
-                NSWindowCollectionBehaviorMoveToActiveSpace,
                 NSFloatingWindowLevel,
             )
             import objc
             from ctypes import c_void_p
+
+            # Constants not always exported by pyobjc
+            NSWindowCollectionBehaviorStationary = 1 << 4
+            NSWindowCollectionBehaviorIgnoresCycle = 1 << 6
 
             view_ptr = self.winId().__int__()
             ns_view = objc.objc_object(c_void_p=c_void_p(view_ptr))
@@ -302,22 +310,30 @@ class RecordingOverlay(QWidget):
             if ns_window is None:
                 return
 
-            # Read current behavior and clear the conflicting bit
-            behavior = ns_window.collectionBehavior()
-            behavior &= ~NSWindowCollectionBehaviorMoveToActiveSpace
-            behavior |= (
+            # Set behavior from scratch — do NOT inherit Qt defaults
+            # (Qt sets FullScreenPrimary which pins the window to one Space
+            # under NSApplicationActivationPolicyRegular).
+            before = ns_window.collectionBehavior()
+            behavior = (
                 NSWindowCollectionBehaviorCanJoinAllSpaces
+                | NSWindowCollectionBehaviorStationary
+                | NSWindowCollectionBehaviorIgnoresCycle
                 | NSWindowCollectionBehaviorFullScreenAuxiliary
             )
             ns_window.setCollectionBehavior_(behavior)
             ns_window.setLevel_(NSFloatingWindowLevel)
+            after = ns_window.collectionBehavior()
+            logger.debug(
+                "NSWindow behavior: before=0x%x, requested=0x%x, after=0x%x, level=%s",
+                before, behavior, after, ns_window.level(),
+            )
 
             # Prevent NSPanel from hiding when the app loses focus
             if ns_window.respondsToSelector_(b"setHidesOnDeactivate:"):
                 ns_window.setHidesOnDeactivate_(False)
 
         except Exception:
-            pass
+            logger.exception("Failed to apply all-Spaces behavior")
 
     def _center_on_screen(self) -> None:
         """Position the overlay centred horizontally near the top of the primary screen."""

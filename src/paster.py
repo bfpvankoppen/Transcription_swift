@@ -8,10 +8,13 @@ Restores the original clipboard afterwards.
 
 from __future__ import annotations
 
+import logging
 import time
 
 import AppKit
 import Quartz
+
+logger = logging.getLogger(__name__)
 
 # Virtual keycode for 'V' on macOS (hardware scancode, layout-independent)
 _V_KEYCODE = 9
@@ -26,6 +29,7 @@ def paste_text(text: str) -> None:
     if not text or not text.strip():
         return
 
+    logger.info("Pasting text (%d chars)", len(text))
     pasteboard = AppKit.NSPasteboard.generalPasteboard()
 
     # Save current clipboard

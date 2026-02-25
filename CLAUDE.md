@@ -94,6 +94,14 @@ Follow these for EVERY prompt and task:
 5. Add review section to `tasks/todo.md`
 6. Capture lessons in `tasks/lessons.md` after corrections
 
+### 8. Comprehensive Logging
+- Logging is **core functionality**, not an afterthought — every application must have it from day one
+- Every significant operation, state transition, and error path must produce a log entry
+- Use structured log levels consistently: `DEBUG` for internals, `INFO` for operations, `WARNING` for recoverable issues, `ERROR` for failures
+- Include enough context in each log message to diagnose issues without a debugger
+- When building or modifying any feature, always include appropriate logging as part of the implementation
+- See `.wow/wow.md` section 7 for the full policy
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible. Minimal code impact.
@@ -107,6 +115,7 @@ Follow these for EVERY prompt and task:
 - Overlay uses NSWindow collection behaviors via pyobjc to appear on all macOS Spaces
 - Qt `Tool` window type creates NSPanel which sets `MoveToActiveSpace` — must clear this bit and set `CanJoinAllSpaces` AFTER `show()`
 - Hotkey uses pynput listener thread bridged to Qt main thread via `HotkeyBridge(QObject)` with `pyqtSignal`
+- **Never stop/restart pynput listener at runtime on macOS 26+** — `TSMGetInputSourceProperty` crashes with SIGTRAP when called from a new background thread. Use `update_modifiers()` to hot-swap config instead.
 - Paste uses NSPasteboard + CGEvent Cmd+V simulation; requires Accessibility permission
 - macOS permissions needed: Microphone, Accessibility, Input Monitoring
 
@@ -115,8 +124,7 @@ Follow these for EVERY prompt and task:
 ### Focus Management
 - **Qt signal thread-crossing steals focus**: When a `pyqtSignal` is emitted from a background thread (pynput) and delivered to the Qt main thread, macOS activates the app as a side effect. By the time the connected slot runs, our app is already frontmost. Calling `frontmostApplication()` inside the slot returns our own app, not the user's.
 - **Fix: capture frontmost app in the pynput thread BEFORE emitting the signal**: `_pre_capture_and_emit()` calls `NSWorkspace.frontmostApplication()` while the user's app is still active, stores the reference, then emits the Qt signal. After the overlay appears, `_refocus_target()` re-activates the saved app via `activateWithOptions_(NSApplicationActivateIgnoringOtherApps)` with a 150ms QTimer delay.
-- **Don't use `LSUIElement=true` if the user needs to find the app**: It hides the app from Dock, Force Quit, and Cmd+Tab. Users can't discover or manage the app. Better to show in Dock and use focus management instead.
-- **`NSApplicationActivationPolicyAccessory`** hides from Dock — same problem as LSUIElement. Removed it so the app is visible everywhere.
+- **macOS 26: `NSApplicationActivationPolicyRegular` breaks all-Spaces overlay**: Under Regular policy, NO window type (Qt Window, Qt Tool, native NSWindow) follows to other Spaces — regardless of `CanJoinAllSpaces` or any behavior flags. The activation policy overrides all per-window Space behavior at the OS level. **Must use Accessory policy for overlays that need to appear on all Spaces.** Dock icon and all-Spaces overlay are mutually exclusive on macOS 26.
 
 ### PyInstaller Packaging
 - **`sys._MEIPASS`**: PyInstaller extracts bundled files to a temp directory. Use `getattr(sys, '_MEIPASS', None)` to detect bundled mode and find resources. Always provide a fallback to the dev path (`os.path.dirname(__file__)`).
@@ -132,9 +140,20 @@ Follow these for EVERY prompt and task:
 - **DMG creation**: `hdiutil create -volname "Name" -srcfolder "path/to/App.app" -ov -format UDZO output.dmg`
 
 ### Overlay Window (All macOS Spaces)
-- After each `show()`, must re-apply `_apply_all_spaces_behavior()` to clear `MoveToActiveSpace` bit and set `CanJoinAllSpaces | FullScreenAuxiliary` via pyobjc — Qt resets these on every `show()`.
+- **Requires Accessory activation policy** — Regular policy pins ALL windows to one Space on macOS 26 (see Focus Management above).
+- Set behavior from scratch (don't inherit Qt defaults): `CanJoinAllSpaces | Stationary | IgnoresCycle | FullScreenAuxiliary`. Do NOT retain `FullScreenPrimary` (0x80) that Qt sets by default.
+- After each `show()`, must re-apply `_apply_all_spaces_behavior()` — Qt may reset behavior during window creation.
 - Use `setHidesOnDeactivate_(False)` to prevent NSPanel from hiding when app loses focus.
-- Do NOT try to avoid `show()`/`hide()` by keeping the window always visible at opacity 0 — this breaks overlay following across macOS Spaces and can interfere with hotkey detection.
+- Do NOT try to avoid `show()`/`hide()` by keeping the window always visible at opacity 0 — this breaks overlay following across macOS Spaces.
 
 ### Blocking Dialogs in Accessory Apps
 - `QMessageBox` in an accessory/background app creates windows that are invisible behind other apps. The user sees nothing and the app appears hung. Use non-blocking tray notifications (`QSystemTrayIcon.showMessage()`) instead of modal dialogs for status messages.
+
+## Reference: notchprompt Patterns
+
+Source: https://github.com/saif0200/notchprompt (native Swift macOS overlay app)
+Full analysis: `tasks/notchprompt-insights.md`
+
+Key patterns applicable to Parkeet: overlay window hardening (stationary + ignoresCycle behaviors),
+privacy mode (NSWindow sharingType), replacing pynput with NSEvent global monitors to eliminate
+focus-stealing at the source, dual-rate animation timers, debounced auto-save, and multi-display support.
