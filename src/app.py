@@ -31,17 +31,18 @@ class TranscriptionApp(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._recording = False
+        self._target_app = None  # app that was focused when recording started
 
         # Components
         self._overlay = RecordingOverlay()
         self._recorder = AudioRecorder()
         self._transcriber = Transcriber()
 
-        # Hotkey
+        # Hotkey — capture frontmost app BEFORE the Qt signal activates our app
         self._hotkey_bridge = HotkeyBridge()
         self._hotkey_bridge.toggled.connect(self._on_toggle)
         self._hotkey_listener = CmdOptionHotkeyListener(
-            on_toggle=self._hotkey_bridge.toggled.emit
+            on_toggle=self._pre_capture_and_emit
         )
 
         # Transcription result crosses from worker thread to main thread
@@ -55,6 +56,35 @@ class TranscriptionApp(QObject):
 
         # System tray
         self._tray: QSystemTrayIcon | None = None
+
+    def _pre_capture_and_emit(self) -> None:
+        """Called from pynput thread. Capture frontmost app BEFORE Qt signal.
+
+        The Qt signal crossing from background thread to main thread activates
+        our app as a side effect, so by the time _on_toggle runs, we're already
+        the frontmost app. Capture the real target here while the user's app
+        is still active.
+        """
+        try:
+            import AppKit
+            self._target_app = (
+                AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+            )
+        except Exception:
+            self._target_app = None
+        self._hotkey_bridge.toggled.emit()
+
+    def _refocus_target(self) -> None:
+        """Re-activate the user's app (without clearing the saved reference)."""
+        if self._target_app is None:
+            return
+        try:
+            import AppKit
+            self._target_app.activateWithOptions_(
+                AppKit.NSApplicationActivateIgnoringOtherApps
+            )
+        except Exception:
+            pass
 
     def start(self) -> None:
         """Initialize and start the app."""
@@ -125,6 +155,7 @@ class TranscriptionApp(QObject):
         self._level_timer.start()
         if self._tray:
             self._tray.setToolTip("Recording...")
+        QTimer.singleShot(150, self._refocus_target)
 
     def _stop_recording(self) -> None:
         self._recording = False
@@ -133,6 +164,7 @@ class TranscriptionApp(QObject):
         self._overlay.show_transcribing()
         if self._tray:
             self._tray.setToolTip("Transcribing...")
+        QTimer.singleShot(150, self._refocus_target)
 
         # Transcribe in background thread
         sample_rate = self._recorder.sample_rate
@@ -152,8 +184,12 @@ class TranscriptionApp(QObject):
     def _on_transcription_done(self, text: str) -> None:
         self._overlay.fade_out()
         if text.strip():
-            # Small delay to let overlay fade before pasting
+            # Re-activate the user's app, then paste after a short delay
+            self._refocus_target()
+            self._target_app = None
             QTimer.singleShot(300, lambda: paste_text(text))
+        else:
+            self._target_app = None
         if self._tray:
             self._tray.setToolTip("Ready — Cmd+Option to record")
 

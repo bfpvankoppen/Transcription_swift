@@ -1,4 +1,4 @@
-# Transcription App (Parakeet)
+# Parkeet
 
 macOS speech-to-text app using NVIDIA Parakeet TDT 0.6B v3 (INT8 ONNX via sherpa-onnx).
 Press Cmd+Option to record, press again to stop, transcription is pasted into the focused text field.
@@ -10,30 +10,47 @@ Press Cmd+Option to record, press again to stop, transcription is pasted into th
 - **sherpa-onnx** for offline ASR inference (INT8 quantized, 642MB model)
 - **sounddevice** for 16kHz mono audio capture
 - **pynput** for global Cmd+Option hotkey detection
-- **pyobjc** (AppKit/Quartz) for clipboard paste simulation and NSWindow control
+- **pyobjc** (AppKit/Quartz) for clipboard paste simulation, focus management, NSWindow control
+- **PyInstaller** for standalone .app packaging
 
 ## Project Structure
 
 ```
 run.py              # Entry point
 src/
-  app.py            # Main controller, state machine, system tray
+  app.py            # Main controller, state machine, system tray, focus restore
   overlay.py        # Floating recording overlay with waveform animation
   hotkey.py         # Global Cmd+Option hotkey listener (pynput + Qt bridge)
   recorder.py       # Audio recorder with real-time level metering
   transcriber.py    # Parakeet model wrapper (sherpa-onnx)
   paster.py         # Clipboard + Cmd+V paste simulation (pyobjc)
-models/             # Downloaded ONNX model files (gitignored)
+models/             # ONNX model files (gitignored)
+parkeet.spec        # PyInstaller spec for building Parkeet.app
+build.sh            # Build script: pyinstaller + codesign + dmg
+assets/
+  Parkeet.icns      # App icon
+  icon.png          # Source icon (1024x1024)
+  generate_icon.py  # Script to regenerate icon
+dist/               # Build output (gitignored)
+  Parkeet.app       # Standalone app bundle (~700MB)
+  Parkeet.dmg       # Distributable disk image (~534MB)
 ```
 
 ## Running
 
+**Development:**
 ```bash
 source .venv/bin/activate
 python run.py
 ```
 
-Alias: `parkeet` (defined in ~/.zshrc)
+**Standalone app:**
+```bash
+bash build.sh          # Build Parkeet.app + Parkeet.dmg
+open dist/Parkeet.app  # Launch
+```
+
+**Desktop shortcut:** Finder alias on Desktop points to `dist/Parkeet.app`
 
 ## Workflow Rules
 
@@ -92,3 +109,32 @@ Follow these for EVERY prompt and task:
 - Hotkey uses pynput listener thread bridged to Qt main thread via `HotkeyBridge(QObject)` with `pyqtSignal`
 - Paste uses NSPasteboard + CGEvent Cmd+V simulation; requires Accessibility permission
 - macOS permissions needed: Microphone, Accessibility, Input Monitoring
+
+## Lessons Learned (macOS App Development)
+
+### Focus Management
+- **Qt signal thread-crossing steals focus**: When a `pyqtSignal` is emitted from a background thread (pynput) and delivered to the Qt main thread, macOS activates the app as a side effect. By the time the connected slot runs, our app is already frontmost. Calling `frontmostApplication()` inside the slot returns our own app, not the user's.
+- **Fix: capture frontmost app in the pynput thread BEFORE emitting the signal**: `_pre_capture_and_emit()` calls `NSWorkspace.frontmostApplication()` while the user's app is still active, stores the reference, then emits the Qt signal. After the overlay appears, `_refocus_target()` re-activates the saved app via `activateWithOptions_(NSApplicationActivateIgnoringOtherApps)` with a 150ms QTimer delay.
+- **Don't use `LSUIElement=true` if the user needs to find the app**: It hides the app from Dock, Force Quit, and Cmd+Tab. Users can't discover or manage the app. Better to show in Dock and use focus management instead.
+- **`NSApplicationActivationPolicyAccessory`** hides from Dock — same problem as LSUIElement. Removed it so the app is visible everywhere.
+
+### PyInstaller Packaging
+- **`sys._MEIPASS`**: PyInstaller extracts bundled files to a temp directory. Use `getattr(sys, '_MEIPASS', None)` to detect bundled mode and find resources. Always provide a fallback to the dev path (`os.path.dirname(__file__)`).
+- **sherpa-onnx native libs**: Must explicitly add `sherpa_onnx/lib/*.so` and `*.dylib` as binaries in the spec file. PyInstaller doesn't auto-detect them.
+- **sounddevice/PortAudio**: Bundle `_sounddevice_data/portaudio-binaries/libportaudio.dylib` as data.
+- **Hidden imports needed**: `sherpa_onnx`, `pynput.keyboard._darwin`, `sounddevice`, `soundfile`, `AppKit`, `Quartz`, `objc`.
+- **Ad-hoc code signing**: `codesign --force --deep --sign -` is required for Gatekeeper to allow the app to run.
+
+### macOS .app Bundles
+- **Shell script as CFBundleExecutable doesn't work well**: The Python process spawned by `exec` doesn't properly inherit the bundle's identity. PyInstaller creating a real Mach-O binary solves this.
+- **Icon cache is aggressive**: After changing `.icns`, must run `lsregister -f` on the .app AND `killall Finder` to refresh.
+- **Finder aliases vs symlinks**: `ln -s` creates Unix symlinks that show generic icons. Use `osascript` with Finder's `make alias file` to create proper macOS aliases that inherit the app icon.
+- **DMG creation**: `hdiutil create -volname "Name" -srcfolder "path/to/App.app" -ov -format UDZO output.dmg`
+
+### Overlay Window (All macOS Spaces)
+- After each `show()`, must re-apply `_apply_all_spaces_behavior()` to clear `MoveToActiveSpace` bit and set `CanJoinAllSpaces | FullScreenAuxiliary` via pyobjc — Qt resets these on every `show()`.
+- Use `setHidesOnDeactivate_(False)` to prevent NSPanel from hiding when app loses focus.
+- Do NOT try to avoid `show()`/`hide()` by keeping the window always visible at opacity 0 — this breaks overlay following across macOS Spaces and can interfere with hotkey detection.
+
+### Blocking Dialogs in Accessory Apps
+- `QMessageBox` in an accessory/background app creates windows that are invisible behind other apps. The user sees nothing and the app appears hung. Use non-blocking tray notifications (`QSystemTrayIcon.showMessage()`) instead of modal dialogs for status messages.
