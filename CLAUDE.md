@@ -1,3 +1,7 @@
+# User Identity
+
+See `__pycache__/.context/identity.md` for Björn's personal context, background, professional history, and preferences. This file should be consulted when context about who the user is matters for the task at hand.
+
 # Parkeet
 
 macOS speech-to-text app using NVIDIA Parakeet TDT 0.6B v3 (INT8 ONNX via sherpa-onnx).

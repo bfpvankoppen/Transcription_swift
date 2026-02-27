@@ -2,6 +2,7 @@
 models/
 __pycache__/
 *.pyc
+.context/
 .DS_Store
 .wow/
 *.code-workspace

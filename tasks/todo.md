@@ -1,51 +1,55 @@
-# Settings UI + Configurable Hotkey + Force Quit Visibility
+# File Transcription Feature
 
 ## Plan
 
 ### Context
-Parkeet currently hides from the Dock and Force Quit (uses `NSApplicationActivationPolicyAccessory`). The hotkey (Cmd+Option) is hardcoded. User wants:
-1. A settings window accessible from the Dock icon to configure the shortcut
-2. The app visible in Force Quit so it can always be killed
+Parkeet currently only supports live microphone transcription via hotkey. User wants to transcribe audio files (Voice Memos from iPhone/Apple Watch/Mac, etc.) with progress tracking and time estimation.
+
+### Decisions
+- **Trigger:** "Transcribe File..." item in system tray menu
+- **UI:** Dedicated window for the multi-step workflow
+- **Transcription:** Chunk-based (30-second chunks) for progress reporting
+- **Audio formats:** M4A, CAF, AAC, AIFF, MP3, WAV via macOS built-in `afconvert`
+- **Save location:** User picks before starting, default is `<original_name>_transcription.txt` in same directory
+- **Output format:** Plain text (.txt)
+
+### User Flow
+1. Click "Transcribe File..." in tray menu
+2. Native file picker opens (filtered to supported audio formats)
+3. Transcription window appears showing file name + duration
+4. 2-second sample transcribed in background to estimate speed
+5. Window shows: duration, estimated time, save location (with Browse button)
+6. User clicks "Start Transcription"
+7. Progress view: progress bar, percentage, elapsed/remaining time, Cancel button
+8. Complete: "Transcription complete!" with Open File and Close buttons
+9. If cancelled, partial transcription is saved
 
 ### Changes
 
-1. **`run.py`** — Change `Accessory` → `Regular` activation policy. Subclass `QApplication` as `ParkeetApp` to catch Dock icon click → show settings.
+1. **`src/file_transcriber.py`** (new) — Chunk-based file transcription engine. Loads audio via `afconvert`, splits into 30s chunks, transcribes sequentially with progress callback.
 
-2. **`src/config.py`** (new) — Config manager. Reads/writes `~/.config/parkeet/config.json`. Default: `{"hotkey": ["cmd", "alt"]}`. Auto-save on change.
+2. **`src/transcription_window.py`** (new) — Dedicated PyQt6 window with states: estimate → confirm → progress → complete.
 
-3. **`src/hotkey_recorder.py`** (new) — `HotkeyRecorderButton(QPushButton)`. Click to record, captures modifier keys, requires 2+ modifiers, shows macOS symbols (⌘ ⌥ ⌃ ⇧). Escape/focus-loss cancels.
+3. **`src/app.py`** — Add "Transcribe File..." to tray menu, wire up file picker and transcription window.
 
-4. **`src/settings_window.py`** (new) — `SettingsWindow(QWidget)` with hotkey recorder. Close hides (not destroys). No Save button — changes apply immediately.
-
-5. **`src/hotkey.py`** — Rename `CmdOptionHotkeyListener` → `ConfigurableHotkeyListener`. Accepts `modifiers: list[str]`. Same toggle logic, same start/stop lifecycle.
-
-6. **`src/app.py`** — Wire config, settings window, configurable listener, tray "Settings..." menu item. Dynamic hotkey display in status messages.
-
-### Implementation Order
-1. `src/config.py`
-2. `src/hotkey_recorder.py`
-3. `src/settings_window.py`
-4. `src/hotkey.py`
-5. `run.py`
-6. `src/app.py`
+4. **`src/config.py`** — Add default save directory preference (optional).
 
 ## Tasks
 
-- [ ] Create `src/config.py` — config read/write
-- [ ] Create `src/hotkey_recorder.py` — hotkey capture widget
-- [ ] Create `src/settings_window.py` — settings dialog
-- [ ] Refactor `src/hotkey.py` — configurable modifiers
-- [ ] Update `run.py` — Regular policy + ParkeetApp subclass
-- [ ] Update `src/app.py` — wire everything
-- [ ] Test end-to-end: Dock visibility, settings, hotkey change, persistence
+- [x] Create `src/file_transcriber.py` — audio loading, chunking, progress-aware transcription
+- [x] Create `src/transcription_window.py` — multi-state UI window
+- [x] Update `src/app.py` — tray menu item, file picker, wire window + transcriber
+- [x] Test: imports, format_duration, app instantiation — all pass
 
 ## Verification
 
-1. App appears in Dock and Force Quit (Cmd+Option+Esc)
-2. Click Dock icon → settings window opens
-3. Right-click tray → "Settings..." → same settings window
-4. Click hotkey field → press Cmd+Shift → recorder captures it
-5. Cmd+Shift triggers recording (new hotkey works)
-6. Cmd+Option does NOT trigger (old hotkey replaced)
-7. Quit and relaunch → Cmd+Shift persists from config
-8. Overlay still works on all Spaces, focus stays in user's text field
+1. "Transcribe File..." appears in tray context menu
+2. File picker filters to .m4a, .caf, .aac, .aiff, .mp3, .wav
+3. Duration displayed correctly for selected file
+4. 2-second sample produces reasonable time estimate
+5. Save path defaults to `<name>_transcription.txt` next to source file
+6. Browse button allows changing save location
+7. Progress bar updates smoothly during transcription
+8. Cancel stops transcription and saves partial result
+9. Completed transcription matches expected text quality
+10. "Open File" button opens the saved .txt file

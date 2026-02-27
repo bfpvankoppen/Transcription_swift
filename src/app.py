@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,14 @@ from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from src.config import Config
+from src.file_transcriber import FileTranscriber, FileInfo
 from src.hotkey import ConfigurableHotkeyListener, HotkeyBridge, format_hotkey
 from src.overlay import RecordingOverlay
 from src.paster import paste_text
 from src.recorder import AudioRecorder
 from src.settings_window import SettingsWindow
 from src.transcriber import Transcriber
+from src.transcription_window import TranscriptionWindow, format_duration
 
 
 class TranscriptionApp(QObject):
@@ -32,6 +35,10 @@ class TranscriptionApp(QObject):
 
     transcription_done = pyqtSignal(str)
     _status_update = pyqtSignal(str)
+    _estimate_done = pyqtSignal(float)
+    _file_progress = pyqtSignal(object)
+    _file_complete = pyqtSignal(str)
+    _file_error = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -50,6 +57,15 @@ class TranscriptionApp(QObject):
         self._settings_window = SettingsWindow(self._config.hotkey)
         self._settings_window.hotkey_changed.connect(self._on_hotkey_changed)
 
+        # File transcription window
+        self._transcription_window = TranscriptionWindow()
+        self._transcription_window.start_requested.connect(self._on_file_start)
+        self._transcription_window.cancel_requested.connect(self._on_file_cancel)
+        self._file_transcriber: FileTranscriber | None = None
+        self._current_file_path: Path | None = None
+        self._current_wav_path: Path | None = None
+        self._current_file_info: FileInfo | None = None
+
         # Hotkey — capture frontmost app BEFORE the Qt signal activates our app
         self._hotkey_bridge = HotkeyBridge()
         self._hotkey_bridge.toggled.connect(self._on_toggle)
@@ -61,6 +77,12 @@ class TranscriptionApp(QObject):
         # Transcription result crosses from worker thread to main thread
         self.transcription_done.connect(self._on_transcription_done)
         self._status_update.connect(self._on_status_update)
+
+        # File transcription signals
+        self._estimate_done.connect(self._on_estimate_done)
+        self._file_progress.connect(self._on_file_progress)
+        self._file_complete.connect(self._on_file_complete)
+        self._file_error.connect(self._on_file_error)
 
         # Level feed timer (drives waveform at ~30fps during recording)
         self._level_timer = QTimer()
@@ -280,6 +302,9 @@ class TranscriptionApp(QObject):
         settings_action = menu.addAction("Settings\u2026")
         settings_action.triggered.connect(self.show_settings)
 
+        transcribe_action = menu.addAction("Transcribe File\u2026")
+        transcribe_action.triggered.connect(self._on_transcribe_file)
+
         menu.addSeparator()
 
         quit_action = menu.addAction("Quit Parkeet")
@@ -288,3 +313,160 @@ class TranscriptionApp(QObject):
         self._tray.setContextMenu(menu)
         self._tray.setToolTip("Parkeet")
         self._tray.show()
+
+    # ------------------------------------------------------------------
+    # File transcription
+    # ------------------------------------------------------------------
+
+    def _on_transcribe_file(self) -> None:
+        """Handle 'Transcribe File...' tray menu action."""
+        if not self._transcriber.is_loaded:
+            logger.warning("Transcribe File requested but model not loaded")
+            if self._tray:
+                self._tray.showMessage(
+                    "Parkeet",
+                    "Model is still loading. Please wait.",
+                    QSystemTrayIcon.MessageIcon.Warning,
+                )
+            return
+
+        from PyQt6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Select Audio File",
+            "",
+            "Audio Files (*.m4a *.caf *.aac *.aiff *.aif *.mp3 *.wav *.qta)"
+            ";;All Files (*)",
+        )
+        if not path:
+            return
+
+        self._current_file_path = Path(path)
+        logger.info("File selected for transcription: %s", path)
+
+        self._transcription_window.show_estimating(self._current_file_path.name)
+
+        def _convert_and_estimate():
+            try:
+                ft = FileTranscriber(self._transcriber)
+                self._file_transcriber = ft
+
+                wav_path = ft.convert_to_wav(self._current_file_path)
+                self._current_wav_path = wav_path
+
+                file_info = ft.get_file_info(wav_path)
+                self._current_file_info = file_info
+
+                estimated_sec = ft.estimate_speed(wav_path, file_info)
+                self._estimate_done.emit(estimated_sec)
+            except Exception as e:
+                logger.exception("File conversion/estimation failed")
+                self._file_error.emit(str(e))
+
+        threading.Thread(target=_convert_and_estimate, daemon=True).start()
+
+    @pyqtSlot(float)
+    def _on_estimate_done(self, estimated_sec: float) -> None:
+        """Switch window to ready state with estimation results."""
+        if not self._current_file_info or not self._current_file_path:
+            return
+
+        file_name = self._current_file_path.name
+        duration_str = format_duration(self._current_file_info.duration_sec)
+        estimate_str = format_duration(estimated_sec)
+        save_path = (
+            self._current_file_path.parent
+            / f"{self._current_file_path.stem}_transcription.txt"
+        )
+
+        logger.info(
+            "Estimation ready: %s, duration=%s, estimate=%s",
+            file_name, duration_str, estimate_str,
+        )
+        self._transcription_window.show_ready(
+            file_name, duration_str, estimate_str, save_path,
+        )
+
+    def _on_file_start(self) -> None:
+        """User clicked Start Transcription."""
+        if not self._file_transcriber or not self._current_wav_path:
+            return
+
+        file_name = (
+            self._current_file_path.name if self._current_file_path else "unknown"
+        )
+        logger.info("Starting file transcription: %s", file_name)
+        self._transcription_window.show_progress(file_name)
+
+        ft = self._file_transcriber
+        wav_path = self._current_wav_path
+
+        def _run():
+            ft.transcribe_file(
+                wav_path=wav_path,
+                on_progress=lambda p: self._file_progress.emit(p),
+                on_complete=lambda text: self._file_complete.emit(text),
+                on_error=lambda msg: self._file_error.emit(msg),
+            )
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_file_cancel(self) -> None:
+        """User clicked Cancel during transcription."""
+        if self._file_transcriber:
+            self._file_transcriber.cancel()
+
+    @pyqtSlot(object)
+    def _on_file_progress(self, progress) -> None:
+        """Update progress bar from background thread via signal."""
+        pct = int(progress.chunks_done / progress.total_chunks * 100)
+        elapsed_str = format_duration(progress.elapsed_sec)
+        remaining_str = format_duration(progress.estimated_remaining_sec)
+        self._transcription_window.update_progress(pct, elapsed_str, remaining_str)
+
+    @pyqtSlot(str)
+    def _on_file_complete(self, text: str) -> None:
+        """Transcription finished or cancelled. Save and show completion."""
+        save_path = self._transcription_window.save_path
+        if not save_path and self._current_file_path:
+            save_path = (
+                self._current_file_path.parent
+                / f"{self._current_file_path.stem}_transcription.txt"
+            )
+
+        was_cancelled = (
+            self._file_transcriber.is_cancelled if self._file_transcriber else False
+        )
+
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            save_path.write_text(text, encoding="utf-8")
+            logger.info("Transcription saved to %s (%d chars)", save_path, len(text))
+        except OSError:
+            logger.exception("Failed to save transcription to %s", save_path)
+            if self._tray:
+                self._tray.showMessage(
+                    "Parkeet",
+                    f"Failed to save transcription to {save_path}",
+                    QSystemTrayIcon.MessageIcon.Critical,
+                )
+
+        self._transcription_window.show_complete(save_path, was_cancelled=was_cancelled)
+
+        if self._file_transcriber:
+            self._file_transcriber.cleanup()
+
+    @pyqtSlot(str)
+    def _on_file_error(self, message: str) -> None:
+        """Handle file transcription errors."""
+        logger.error("File transcription error: %s", message)
+        if self._tray:
+            self._tray.showMessage(
+                "Parkeet",
+                f"Transcription failed: {message}",
+                QSystemTrayIcon.MessageIcon.Critical,
+            )
+        self._transcription_window.close()
+        if self._file_transcriber:
+            self._file_transcriber.cleanup()
