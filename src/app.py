@@ -30,6 +30,7 @@ from src.recorder import AudioRecorder
 from src.settings_window import SettingsWindow
 from src.sounds import play as play_sound
 from src.transcriber import Transcriber
+from src.voice_commands import apply_voice_commands
 from src.transcription_window import TranscriptionWindow, format_duration
 
 
@@ -69,11 +70,13 @@ class TranscriptionApp(QObject):
             retention_hours=self._config.history_retention_hours,
             sound_enabled=self._config.sound_enabled,
             notification_enabled=self._config.notification_enabled,
+            voice_commands=self._config.get_voice_commands_enabled(),
         )
         self._settings_window.hotkey_changed.connect(self._on_hotkey_changed)
         self._settings_window.retention_changed.connect(self._on_retention_changed)
         self._settings_window.sound_enabled_changed.connect(self._on_sound_enabled_changed)
         self._settings_window.notification_enabled_changed.connect(self._on_notification_enabled_changed)
+        self._settings_window.voice_command_toggled.connect(self._on_voice_command_toggled)
         self._settings_window.transcribe_file_requested.connect(self._on_transcribe_file)
         self._settings_window.file_dropped.connect(self._on_file_dropped)
 
@@ -200,6 +203,11 @@ class TranscriptionApp(QObject):
         """Called when the user toggles notifications in settings."""
         logger.info("Notifications changed to %s", enabled)
         self._config.notification_enabled = enabled
+
+    @pyqtSlot(str, bool)
+    def _on_voice_command_toggled(self, command: str, enabled: bool) -> None:
+        """Called when the user toggles a single voice command in settings."""
+        self._config.set_voice_command(command, enabled)
 
     @pyqtSlot(list)
     def _on_hotkey_changed(self, new_hotkey: list[str]) -> None:
@@ -335,9 +343,14 @@ class TranscriptionApp(QObject):
     def _on_transcription_done(self, text: str) -> None:
         stripped = text.strip()
         if stripped:
-            word_count = len(stripped.split())
-            logger.info("Transcription done (%d chars, %d words), pasting", len(stripped), word_count)
-            self._history.add_hotkey(stripped)
+            # Apply voice commands (e.g. "new line" → \n)
+            logger.debug("Raw transcription: %r", stripped)
+            enabled = self._config.get_voice_commands_enabled()
+            processed = apply_voice_commands(stripped, enabled)
+
+            word_count = len(processed.split())
+            logger.info("Transcription done (%d chars, %d words), pasting", len(processed), word_count)
+            self._history.add_hotkey(processed)
             self._play_sound("transcription_complete")
 
             # Show word count in overlay for 2s, then auto-fade
@@ -346,7 +359,7 @@ class TranscriptionApp(QObject):
             # Re-activate the user's app, then paste after a short delay
             self._refocus_target()
             self._target_app = None
-            QTimer.singleShot(300, lambda: paste_text(text))
+            QTimer.singleShot(300, lambda: paste_text(processed))
 
             # Show tray notification if enabled
             if self._tray and self._config.notification_enabled:
@@ -535,6 +548,10 @@ class TranscriptionApp(QObject):
     @pyqtSlot(str)
     def _on_file_complete(self, text: str) -> None:
         """Transcription finished or cancelled. Save and show completion."""
+        # Apply voice commands before saving
+        enabled = self._config.get_voice_commands_enabled()
+        text = apply_voice_commands(text, enabled)
+
         save_path = self._transcription_window.save_path
         if not save_path and self._current_file_path:
             save_path = (

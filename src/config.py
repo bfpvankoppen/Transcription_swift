@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ DEFAULT_CONFIG = {
     "history_retention_hours": 48,
     "sound_enabled": True,
     "notification_enabled": True,
+    "voice_commands": {},  # per-command overrides; missing keys default to True
 }
 
 
@@ -89,3 +91,32 @@ class Config:
         self._data["notification_enabled"] = value
         self.save()
         logger.info("Config saved: notification_enabled=%s", value)
+
+    @property
+    def voice_commands(self) -> Dict[str, bool]:
+        """Per-command enabled state. Missing keys default to True."""
+        return self._data.get("voice_commands", {})
+
+    @voice_commands.setter
+    def voice_commands(self, value: Dict[str, bool]) -> None:
+        self._data["voice_commands"] = value
+        self.save()
+        logger.info("Config saved: voice_commands=%s", value)
+
+    def set_voice_command(self, command: str, enabled: bool) -> None:
+        """Toggle a single voice command on or off."""
+        cmds = self._data.get("voice_commands", {})
+        cmds[command] = enabled
+        self._data["voice_commands"] = cmds
+        self.save()
+        logger.info("Config saved: voice_command %r = %s", command, enabled)
+
+    def get_voice_commands_enabled(self) -> Dict[str, bool]:
+        """Return the full enabled dict with defaults filled in.
+
+        Commands not explicitly set in config default to True.
+        """
+        from src.voice_commands import default_enabled
+        result = default_enabled()
+        result.update(self._data.get("voice_commands", {}))
+        return result

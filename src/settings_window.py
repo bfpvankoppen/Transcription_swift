@@ -249,15 +249,17 @@ class SettingsWindow(QWidget):
     retention_changed = pyqtSignal(float)
     sound_enabled_changed = pyqtSignal(bool)
     notification_enabled_changed = pyqtSignal(bool)
+    voice_command_toggled = pyqtSignal(str, bool)  # (command_phrase, enabled)
     transcribe_file_requested = pyqtSignal()
     file_dropped = pyqtSignal(str)  # absolute path of dropped audio file
 
     # Sidebar page indices
     PAGE_SETTINGS = 0
-    PAGE_HISTORY = 1
-    PAGE_TRANSCRIBE = 2
-    PAGE_ABOUT = 3
-    PAGE_ATTRIBUTION = 4
+    PAGE_VOICE_COMMANDS = 1
+    PAGE_HISTORY = 2
+    PAGE_TRANSCRIBE = 3
+    PAGE_ABOUT = 4
+    PAGE_ATTRIBUTION = 5
 
     # Keep legacy alias so callers using PAGE_HOTKEYS still work
     PAGE_HOTKEYS = PAGE_SETTINGS
@@ -269,6 +271,7 @@ class SettingsWindow(QWidget):
         retention_hours: float = 48.0,
         sound_enabled: bool = True,
         notification_enabled: bool = True,
+        voice_commands: dict[str, bool] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -298,6 +301,7 @@ class SettingsWindow(QWidget):
         self._sidebar = QListWidget()
         self._sidebar.setStyleSheet(_SIDEBAR_STYLE)
         self._sidebar.addItem(QListWidgetItem("Settings"))
+        self._sidebar.addItem(QListWidgetItem("Voice Commands"))
         self._sidebar.addItem(QListWidgetItem("History"))
         self._sidebar.addItem(QListWidgetItem("Transcribe File"))
         self._sidebar.addItem(QListWidgetItem("About"))
@@ -336,6 +340,7 @@ class SettingsWindow(QWidget):
         # Content pane (stacked pages)
         self._pages = QStackedWidget()
         self._pages.addWidget(self._build_settings_page(current_hotkey, sound_enabled, notification_enabled))
+        self._pages.addWidget(self._build_voice_commands_page(voice_commands or {}))
         self._pages.addWidget(self._build_history_page(retention_hours))
         self._pages.addWidget(self._build_transcribe_page())
         self._pages.addWidget(self._build_about_page())
@@ -352,7 +357,7 @@ class SettingsWindow(QWidget):
         sound_enabled: bool,
         notification_enabled: bool,
     ) -> QWidget:
-        """Build the Settings page: Hotkeys, Sound, Notifications groups."""
+        """Build the Settings page: Hotkeys and Feedback groups."""
         page = QWidget()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -430,6 +435,68 @@ class SettingsWindow(QWidget):
         fb_layout.addLayout(_make_row("Notifications", self._notif_combo))
 
         layout.addWidget(fb_group)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll)
+        return page
+
+    def _build_voice_commands_page(self, voice_commands: dict[str, bool]) -> QWidget:
+        """Build the Voice Commands page with per-command On/Off toggles."""
+        from src.voice_commands import ALL_COMMANDS, REPLACEMENT_DISPLAY
+
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("Voice Commands")
+        title.setStyleSheet(_TITLE_STYLE)
+        layout.addWidget(title)
+
+        desc = QLabel(
+            'Say "new line" or "comma" while dictating to insert formatting. '
+            "Toggle individual commands below. English commands only."
+        )
+        desc.setStyleSheet("color: #888; font-size: 12px;")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        group = _make_group()
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(0)
+
+        self._vc_combos: dict[str, QComboBox] = {}
+
+        for idx, (cmd, replacement) in enumerate(ALL_COMMANDS):
+            combo = QComboBox()
+            combo.setStyleSheet(_COMBO_STYLE)
+            combo.addItem("On", True)
+            combo.addItem("Off", False)
+            enabled = voice_commands.get(cmd, True)
+            combo.setCurrentIndex(0 if enabled else 1)
+            combo.currentIndexChanged.connect(
+                lambda _, c=cmd: self._on_voice_command_toggled(c)
+            )
+            self._vc_combos[cmd] = combo
+
+            display_repl = REPLACEMENT_DISPLAY.get(replacement, replacement)
+            label = f'"{cmd}"  \u2192  {display_repl}'
+            group_layout.addLayout(_make_row(label, combo))
+
+            if idx < len(ALL_COMMANDS) - 1:
+                group_layout.addWidget(_make_separator())
+
+        layout.addWidget(group)
 
         layout.addStretch()
         scroll.setWidget(content)
@@ -837,6 +904,14 @@ class SettingsWindow(QWidget):
         enabled = self._notif_combo.currentData()
         logger.info("Notifications changed to %s", enabled)
         self.notification_enabled_changed.emit(enabled)
+
+    def _on_voice_command_toggled(self, command: str) -> None:
+        combo = self._vc_combos.get(command)
+        if combo is None:
+            return
+        enabled = combo.currentData()
+        logger.info("Voice command %r changed to %s", command, enabled)
+        self.voice_command_toggled.emit(command, enabled)
 
     def _on_transcribe_clicked(self) -> None:
         logger.info("Transcribe file requested from settings")
