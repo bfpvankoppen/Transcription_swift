@@ -71,9 +71,11 @@ BAR_MIN_HEIGHT = 4           # px – minimum bar height (idle state)
 BAR_CORNER = 2.0             # px – bar corner radius
 
 BG_COLOR = QColor(20, 20, 24, 200)        # dark translucent background
+BG_COLOR_COMPLETE = QColor(0, 0, 0, 240)  # solid black for completion state
 BAR_COLOR = QColor(100, 180, 255, 220)    # waveform bar colour
 BAR_COLOR_LOW = QColor(80, 140, 220, 180) # lower-amplitude tint
 LABEL_COLOR = QColor(180, 180, 190, 220)  # "Transcribing..." text colour
+LABEL_COLOR_COMPLETE = QColor(255, 255, 255, 240)  # bright white for completion
 
 FADE_DURATION_MS = 250       # fade in / fade out duration
 FPS = 30                     # waveform refresh rate
@@ -134,6 +136,7 @@ class RecordingOverlay(QWidget):
         self._levels: List[float] = [0.0] * BAR_COUNT
         self._display_levels: List[float] = [0.0] * BAR_COUNT  # smoothed
         self._is_transcribing = False
+        self._is_complete = False
 
         # --- Repaint timer (~30 fps) ---------------------------------------
         self._timer = QTimer(self)
@@ -157,6 +160,7 @@ class RecordingOverlay(QWidget):
         """Show the overlay with a smooth fade-in animation."""
         logger.info("Overlay fade_in")
         self._is_transcribing = False
+        self._is_complete = False
         self._label.hide()
         self._levels = [0.0] * BAR_COUNT
         self._display_levels = [0.0] * BAR_COUNT
@@ -235,7 +239,39 @@ class RecordingOverlay(QWidget):
     def show_transcribing(self) -> None:
         """Freeze the waveform and display a 'Transcribing...' label."""
         self._is_transcribing = True
+        self._is_complete = False
+        self._label.setStyleSheet(
+            f"color: rgba({LABEL_COLOR.red()}, {LABEL_COLOR.green()}, "
+            f"{LABEL_COLOR.blue()}, {LABEL_COLOR.alpha()}); "
+            f"font-size: 13px; font-weight: 500; background: transparent;"
+        )
+        self._label.setText("Transcribing\u2026")
         self._label.show()
+
+    def show_complete(self, word_count: int) -> None:
+        """Show word count for 2 seconds, then auto-fade out.
+
+        Switches overlay to a solid black background with large white text
+        showing "Words transcribed: N", then fades out after 2 seconds.
+        """
+        self._is_complete = True
+        self._is_transcribing = True
+
+        if word_count > 0:
+            self._label.setText(f"Words transcribed: {word_count:,}")
+        else:
+            self._label.setText("Done")
+
+        self._label.setStyleSheet(
+            f"color: rgba({LABEL_COLOR_COMPLETE.red()}, {LABEL_COLOR_COMPLETE.green()}, "
+            f"{LABEL_COLOR_COMPLETE.blue()}, {LABEL_COLOR_COMPLETE.alpha()}); "
+            f"font-size: 22px; font-weight: 600; background: transparent;"
+        )
+        self._label.show()
+        self.update()
+
+        logger.info("Overlay show_complete: %d words, fading in 2s", word_count)
+        QTimer.singleShot(2000, self.fade_out)
 
     # ------------------------------------------------------------------
     # Painting
@@ -247,36 +283,38 @@ class RecordingOverlay(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # --- Background ----------------------------------------------------
+        bg_color = BG_COLOR_COMPLETE if self._is_complete else BG_COLOR
         bg_path = QPainterPath()
         bg_path.addRoundedRect(
             QRectF(0, 0, self.width(), self.height()),
             CORNER_RADIUS,
             CORNER_RADIUS,
         )
-        painter.fillPath(bg_path, QBrush(BG_COLOR))
+        painter.fillPath(bg_path, QBrush(bg_color))
 
-        # --- Waveform bars -------------------------------------------------
-        total_bars_width = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
-        x_start = (self.width() - total_bars_width) / 2.0
-        max_bar_height = self.height() - 20.0  # leave 10 px padding top+bottom
+        # --- Waveform bars (hidden during completion) ----------------------
+        if not self._is_complete:
+            total_bars_width = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP
+            x_start = (self.width() - total_bars_width) / 2.0
+            max_bar_height = self.height() - 20.0  # leave 10 px padding top+bottom
 
-        for i in range(BAR_COUNT):
-            level = self._display_levels[i]
-            bar_h = max(BAR_MIN_HEIGHT, level * max_bar_height)
-            x = x_start + i * (BAR_WIDTH + BAR_GAP)
-            y = (self.height() - bar_h) / 2.0
+            for i in range(BAR_COUNT):
+                level = self._display_levels[i]
+                bar_h = max(BAR_MIN_HEIGHT, level * max_bar_height)
+                x = x_start + i * (BAR_WIDTH + BAR_GAP)
+                y = (self.height() - bar_h) / 2.0
 
-            # Tint: brighter when louder.
-            t = level
-            r = int(BAR_COLOR_LOW.red() + t * (BAR_COLOR.red() - BAR_COLOR_LOW.red()))
-            g = int(BAR_COLOR_LOW.green() + t * (BAR_COLOR.green() - BAR_COLOR_LOW.green()))
-            b = int(BAR_COLOR_LOW.blue() + t * (BAR_COLOR.blue() - BAR_COLOR_LOW.blue()))
-            a = int(BAR_COLOR_LOW.alpha() + t * (BAR_COLOR.alpha() - BAR_COLOR_LOW.alpha()))
-            color = QColor(r, g, b, a)
+                # Tint: brighter when louder.
+                t = level
+                r = int(BAR_COLOR_LOW.red() + t * (BAR_COLOR.red() - BAR_COLOR_LOW.red()))
+                g = int(BAR_COLOR_LOW.green() + t * (BAR_COLOR.green() - BAR_COLOR_LOW.green()))
+                b = int(BAR_COLOR_LOW.blue() + t * (BAR_COLOR.blue() - BAR_COLOR_LOW.blue()))
+                a = int(BAR_COLOR_LOW.alpha() + t * (BAR_COLOR.alpha() - BAR_COLOR_LOW.alpha()))
+                color = QColor(r, g, b, a)
 
-            bar_path = QPainterPath()
-            bar_path.addRoundedRect(QRectF(x, y, BAR_WIDTH, bar_h), BAR_CORNER, BAR_CORNER)
-            painter.fillPath(bar_path, QBrush(color))
+                bar_path = QPainterPath()
+                bar_path.addRoundedRect(QRectF(x, y, BAR_WIDTH, bar_h), BAR_CORNER, BAR_CORNER)
+                painter.fillPath(bar_path, QBrush(color))
 
         painter.end()
 
@@ -360,6 +398,7 @@ class RecordingOverlay(QWidget):
         """Hide the widget after fade-out completes."""
         self.hide()
         self._is_transcribing = False
+        self._is_complete = False
         self._label.hide()
         # Clean up signal.
         try:

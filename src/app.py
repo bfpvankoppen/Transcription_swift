@@ -28,6 +28,7 @@ from src.overlay import RecordingOverlay
 from src.paster import paste_text
 from src.recorder import AudioRecorder
 from src.settings_window import SettingsWindow
+from src.sounds import play as play_sound
 from src.transcriber import Transcriber
 from src.transcription_window import TranscriptionWindow, format_duration
 
@@ -66,10 +67,15 @@ class TranscriptionApp(QObject):
             self._config.hotkey,
             history=self._history,
             retention_hours=self._config.history_retention_hours,
+            sound_enabled=self._config.sound_enabled,
+            notification_enabled=self._config.notification_enabled,
         )
         self._settings_window.hotkey_changed.connect(self._on_hotkey_changed)
         self._settings_window.retention_changed.connect(self._on_retention_changed)
+        self._settings_window.sound_enabled_changed.connect(self._on_sound_enabled_changed)
+        self._settings_window.notification_enabled_changed.connect(self._on_notification_enabled_changed)
         self._settings_window.transcribe_file_requested.connect(self._on_transcribe_file)
+        self._settings_window.file_dropped.connect(self._on_file_dropped)
 
         # File transcription window
         self._transcription_window = TranscriptionWindow()
@@ -105,6 +111,15 @@ class TranscriptionApp(QObject):
 
         # System tray
         self._tray: QSystemTrayIcon | None = None
+
+    # ------------------------------------------------------------------
+    # Sound
+    # ------------------------------------------------------------------
+
+    def _play_sound(self, name: str) -> None:
+        """Play a sound if sound feedback is enabled."""
+        if self._config.sound_enabled:
+            play_sound(name)
 
     # ------------------------------------------------------------------
     # Hotkey capture
@@ -173,6 +188,18 @@ class TranscriptionApp(QObject):
         logger.info("History retention changed to %s hours", hours)
         self._config.history_retention_hours = hours
         self._history.retention_hours = hours
+
+    @pyqtSlot(bool)
+    def _on_sound_enabled_changed(self, enabled: bool) -> None:
+        """Called when the user toggles sound feedback in settings."""
+        logger.info("Sound feedback changed to %s", enabled)
+        self._config.sound_enabled = enabled
+
+    @pyqtSlot(bool)
+    def _on_notification_enabled_changed(self, enabled: bool) -> None:
+        """Called when the user toggles notifications in settings."""
+        logger.info("Notifications changed to %s", enabled)
+        self._config.notification_enabled = enabled
 
     @pyqtSlot(list)
     def _on_hotkey_changed(self, new_hotkey: list[str]) -> None:
@@ -260,6 +287,7 @@ class TranscriptionApp(QObject):
             return
         logger.info("Recording started")
         self._recording = True
+        self._play_sound("record_start")
 
         # Hide any open Parkeet windows so the user's app regains focus
         self._hide_parkeet_windows()
@@ -281,6 +309,7 @@ class TranscriptionApp(QObject):
     def _stop_recording(self) -> None:
         logger.info("Recording stopped")
         self._recording = False
+        self._play_sound("record_stop")
         self._level_timer.stop()
         audio = self._recorder.stop()
         self._overlay.show_transcribing()
@@ -304,18 +333,31 @@ class TranscriptionApp(QObject):
 
     @pyqtSlot(str)
     def _on_transcription_done(self, text: str) -> None:
-        if text.strip():
-            logger.info("Transcription done (%d chars), pasting", len(text.strip()))
-            self._history.add_hotkey(text.strip())
-        else:
-            logger.warning("Transcription returned empty text")
-        self._overlay.fade_out()
-        if text.strip():
+        stripped = text.strip()
+        if stripped:
+            word_count = len(stripped.split())
+            logger.info("Transcription done (%d chars, %d words), pasting", len(stripped), word_count)
+            self._history.add_hotkey(stripped)
+            self._play_sound("transcription_complete")
+
+            # Show word count in overlay for 2s, then auto-fade
+            self._overlay.show_complete(word_count)
+
             # Re-activate the user's app, then paste after a short delay
             self._refocus_target()
             self._target_app = None
             QTimer.singleShot(300, lambda: paste_text(text))
+
+            # Show tray notification if enabled
+            if self._tray and self._config.notification_enabled:
+                self._tray.showMessage(
+                    "Parkeet",
+                    f"Transcribed {word_count:,} words and pasted.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                )
         else:
+            logger.warning("Transcription returned empty text")
+            self._overlay.fade_out()
             self._target_app = None
         if self._tray:
             hk = format_hotkey(self._config.hotkey)
@@ -388,8 +430,27 @@ class TranscriptionApp(QObject):
         if not path:
             return
 
-        self._current_file_path = Path(path)
-        logger.info("File selected for transcription: %s", path)
+        self._start_file_transcription(Path(path))
+
+    @pyqtSlot(str)
+    def _on_file_dropped(self, path: str) -> None:
+        """Handle audio file dropped onto the Transcribe File page."""
+        if not self._transcriber.is_loaded:
+            logger.warning("File dropped but model not loaded")
+            if self._tray:
+                self._tray.showMessage(
+                    "Parkeet",
+                    "Model is still loading. Please wait.",
+                    QSystemTrayIcon.MessageIcon.Warning,
+                )
+            return
+        logger.info("File dropped for transcription: %s", path)
+        self._start_file_transcription(Path(path))
+
+    def _start_file_transcription(self, file_path: Path) -> None:
+        """Begin estimation and transcription for the given file."""
+        self._current_file_path = file_path
+        logger.info("Starting file transcription pipeline: %s", file_path)
 
         self._transcription_window.show_estimating(self._current_file_path.name)
 
@@ -500,7 +561,16 @@ class TranscriptionApp(QObject):
                     QSystemTrayIcon.MessageIcon.Critical,
                 )
 
-        self._transcription_window.show_complete(save_path, was_cancelled=was_cancelled)
+        self._transcription_window.show_complete(save_path, text, was_cancelled=was_cancelled)
+        self._play_sound("transcription_complete")
+
+        if self._tray and not was_cancelled and self._config.notification_enabled:
+            word_count = len(text.split())
+            self._tray.showMessage(
+                "Parkeet",
+                f"Transcription complete \u2014 {word_count:,} words saved.",
+                QSystemTrayIcon.MessageIcon.Information,
+            )
 
         if self._file_transcriber:
             self._file_transcriber.cleanup()

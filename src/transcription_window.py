@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -143,21 +144,29 @@ class TranscriptionWindow(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
 
+        self._complete_text: str = ""
+
         self._complete_label = QLabel("Transcription complete!")
         self._complete_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         self._complete_path_label = QLabel("Saved to: ...")
         self._complete_path_label.setWordWrap(True)
+        self._complete_word_count = QLabel("")
+        self._complete_word_count.setStyleSheet("color: #888;")
 
         btn_row = QHBoxLayout()
+        self._copy_text_btn = QPushButton("Copy Text")
+        self._copy_text_btn.clicked.connect(self._on_copy_text)
         self._open_btn = QPushButton("Open File")
         self._open_btn.clicked.connect(self._on_open_file)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.close)
+        btn_row.addWidget(self._copy_text_btn)
         btn_row.addWidget(self._open_btn)
         btn_row.addWidget(close_btn)
 
         layout.addWidget(self._complete_label)
         layout.addWidget(self._complete_path_label)
+        layout.addWidget(self._complete_word_count)
         layout.addSpacing(16)
         layout.addLayout(btn_row)
         layout.addStretch()
@@ -206,9 +215,14 @@ class TranscriptionWindow(QWidget):
             f"Elapsed: {elapsed_str} | Remaining: {remaining_str}"
         )
 
-    def show_complete(self, save_path: Path, was_cancelled: bool = False) -> None:
-        """Show the completion state."""
+    def show_complete(
+        self, save_path: Path, text: str = "", *, was_cancelled: bool = False,
+    ) -> None:
+        """Show the completion state with optional transcribed text for copying."""
         self._save_path = save_path
+        self._complete_text = text
+        word_count = len(text.split()) if text else 0
+
         if was_cancelled:
             self._complete_label.setText("Transcription cancelled")
             self._complete_path_label.setText(
@@ -217,6 +231,14 @@ class TranscriptionWindow(QWidget):
         else:
             self._complete_label.setText("Transcription complete!")
             self._complete_path_label.setText(f"Saved to:\n{save_path}")
+
+        if word_count > 0:
+            self._complete_word_count.setText(f"{word_count:,} words")
+            self._complete_word_count.setVisible(True)
+        else:
+            self._complete_word_count.setVisible(False)
+
+        self._copy_text_btn.setVisible(bool(text))
         self._stack.setCurrentIndex(3)
 
     @property
@@ -236,6 +258,12 @@ class TranscriptionWindow(QWidget):
             self._save_path = Path(path)
             self._save_path_edit.setText(str(self._save_path))
             logger.info("Save path changed to: %s", self._save_path)
+
+    def _on_copy_text(self) -> None:
+        if self._complete_text:
+            QApplication.clipboard().setText(self._complete_text)
+            self._copy_text_btn.setText("Copied!")
+            logger.info("Copied %d chars of transcription to clipboard", len(self._complete_text))
 
     def _on_open_file(self) -> None:
         if self._save_path and self._save_path.exists():

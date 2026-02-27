@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -174,25 +175,100 @@ def _make_group() -> QFrame:
     return frame
 
 
+_AUDIO_EXTENSIONS = {".m4a", ".caf", ".aac", ".aiff", ".aif", ".mp3", ".wav", ".qta"}
+
+_DROP_ZONE_DEFAULT = """
+    QFrame#DropZone {
+        background-color: #2A2A2A;
+        border: 2px dashed #4A4A4A;
+        border-radius: 10px;
+    }
+"""
+_DROP_ZONE_HOVER = """
+    QFrame#DropZone {
+        background-color: #2A3040;
+        border: 2px dashed #4A7AFF;
+        border-radius: 10px;
+    }
+"""
+
+
+class _DropZone(QFrame):
+    """Drag-and-drop zone for audio files."""
+
+    def __init__(self, settings_window: "SettingsWindow", parent=None) -> None:
+        super().__init__(parent)
+        self._settings_window = settings_window
+        self.setObjectName("DropZone")
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(120)
+        self.setStyleSheet(_DROP_ZONE_DEFAULT)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        icon_label = QLabel("\u2b07")  # down arrow
+        icon_label.setStyleSheet("color: #666; font-size: 28px;")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
+        text_label = QLabel("Drop audio file here")
+        text_label.setStyleSheet("color: #888; font-size: 13px;")
+        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(text_label)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                path = url.toLocalFile()
+                if any(path.lower().endswith(ext) for ext in _AUDIO_EXTENSIONS):
+                    event.acceptProposedAction()
+                    self.setStyleSheet(_DROP_ZONE_HOVER)
+                    return
+        event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:
+        self.setStyleSheet(_DROP_ZONE_DEFAULT)
+
+    def dropEvent(self, event) -> None:
+        self.setStyleSheet(_DROP_ZONE_DEFAULT)
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if any(path.lower().endswith(ext) for ext in _AUDIO_EXTENSIONS):
+                logger.info("Audio file dropped: %s", path)
+                self._settings_window.file_dropped.emit(path)
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+
 class SettingsWindow(QWidget):
     """macOS System Settings style: sidebar + content pane."""
 
     hotkey_changed = pyqtSignal(list)
     retention_changed = pyqtSignal(float)
+    sound_enabled_changed = pyqtSignal(bool)
+    notification_enabled_changed = pyqtSignal(bool)
     transcribe_file_requested = pyqtSignal()
+    file_dropped = pyqtSignal(str)  # absolute path of dropped audio file
 
     # Sidebar page indices
-    PAGE_HOTKEYS = 0
+    PAGE_SETTINGS = 0
     PAGE_HISTORY = 1
     PAGE_TRANSCRIBE = 2
     PAGE_ABOUT = 3
     PAGE_ATTRIBUTION = 4
+
+    # Keep legacy alias so callers using PAGE_HOTKEYS still work
+    PAGE_HOTKEYS = PAGE_SETTINGS
 
     def __init__(
         self,
         current_hotkey: list[str],
         history: HistoryManager,
         retention_hours: float = 48.0,
+        sound_enabled: bool = True,
+        notification_enabled: bool = True,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -221,7 +297,7 @@ class SettingsWindow(QWidget):
 
         self._sidebar = QListWidget()
         self._sidebar.setStyleSheet(_SIDEBAR_STYLE)
-        self._sidebar.addItem(QListWidgetItem("Hotkeys"))
+        self._sidebar.addItem(QListWidgetItem("Settings"))
         self._sidebar.addItem(QListWidgetItem("History"))
         self._sidebar.addItem(QListWidgetItem("Transcribe File"))
         self._sidebar.addItem(QListWidgetItem("About"))
@@ -259,7 +335,7 @@ class SettingsWindow(QWidget):
 
         # Content pane (stacked pages)
         self._pages = QStackedWidget()
-        self._pages.addWidget(self._build_hotkeys_page(current_hotkey))
+        self._pages.addWidget(self._build_settings_page(current_hotkey, sound_enabled, notification_enabled))
         self._pages.addWidget(self._build_history_page(retention_hours))
         self._pages.addWidget(self._build_transcribe_page())
         self._pages.addWidget(self._build_about_page())
@@ -270,23 +346,32 @@ class SettingsWindow(QWidget):
     # Page builders
     # ------------------------------------------------------------------
 
-    def _build_hotkeys_page(self, current_hotkey: list[str]) -> QWidget:
-        """Build the Hotkeys settings page."""
+    def _build_settings_page(
+        self,
+        current_hotkey: list[str],
+        sound_enabled: bool,
+        notification_enabled: bool,
+    ) -> QWidget:
+        """Build the Settings page: Hotkeys, Sound, Notifications groups."""
         page = QWidget()
-        layout = QVBoxLayout(page)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        title = QLabel("Hotkeys")
+        title = QLabel("Settings")
         title.setStyleSheet(_TITLE_STYLE)
         layout.addWidget(title)
 
-        desc = QLabel("Choose the modifier keys used to start and stop recording.")
-        desc.setStyleSheet("color: #888; font-size: 12px;")
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+        # --- Hotkeys group ---
+        hk_header = QLabel("Hotkeys")
+        hk_header.setStyleSheet("color: #999; font-size: 11px; text-transform: uppercase;")
+        layout.addWidget(hk_header)
 
-        # Hotkey group
         group = _make_group()
         group_layout = QVBoxLayout(group)
         group_layout.setContentsMargins(0, 0, 0, 0)
@@ -314,7 +399,44 @@ class SettingsWindow(QWidget):
         group_layout.addLayout(_make_row("Key 2", self._combo2))
 
         layout.addWidget(group)
+
+        # --- Sound & Notifications group ---
+        fb_header = QLabel("Feedback")
+        fb_header.setStyleSheet("color: #999; font-size: 11px; text-transform: uppercase;")
+        layout.addWidget(fb_header)
+
+        fb_group = _make_group()
+        fb_layout = QVBoxLayout(fb_group)
+        fb_layout.setContentsMargins(0, 0, 0, 0)
+        fb_layout.setSpacing(0)
+
+        self._sound_combo = QComboBox()
+        self._sound_combo.setStyleSheet(_COMBO_STYLE)
+        self._sound_combo.addItem("On", True)
+        self._sound_combo.addItem("Off", False)
+        self._sound_combo.setCurrentIndex(0 if sound_enabled else 1)
+        self._sound_combo.currentIndexChanged.connect(self._on_sound_changed)
+
+        fb_layout.addLayout(_make_row("Sound effects", self._sound_combo))
+        fb_layout.addWidget(_make_separator())
+
+        self._notif_combo = QComboBox()
+        self._notif_combo.setStyleSheet(_COMBO_STYLE)
+        self._notif_combo.addItem("On", True)
+        self._notif_combo.addItem("Off", False)
+        self._notif_combo.setCurrentIndex(0 if notification_enabled else 1)
+        self._notif_combo.currentIndexChanged.connect(self._on_notification_changed)
+
+        fb_layout.addLayout(_make_row("Notifications", self._notif_combo))
+
+        layout.addWidget(fb_group)
+
         layout.addStretch()
+        scroll.setWidget(content)
+
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll)
         return page
 
     def _build_history_page(self, retention_hours: float) -> QWidget:
@@ -349,6 +471,26 @@ class SettingsWindow(QWidget):
         )
         layout.addWidget(group)
 
+        # Search bar
+        self._history_search = QLineEdit()
+        self._history_search.setPlaceholderText("Search transcriptions\u2026")
+        self._history_search.setClearButtonEnabled(True)
+        self._history_search.setStyleSheet(
+            "QLineEdit {"
+            "  background-color: #2A2A2A;"
+            "  color: #DDD;"
+            "  border: 1px solid #3A3A3A;"
+            "  border-radius: 6px;"
+            "  padding: 6px 10px;"
+            "  font-size: 13px;"
+            "}"
+            "QLineEdit:focus {"
+            "  border: 1px solid #4A7AFF;"
+            "}"
+        )
+        self._history_search.textChanged.connect(self._on_history_search)
+        layout.addWidget(self._history_search)
+
         # History entries scroll area
         self._history_empty = QLabel("No recent transcriptions")
         self._history_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -372,7 +514,7 @@ class SettingsWindow(QWidget):
         return page
 
     def _build_transcribe_page(self) -> QWidget:
-        """Build the Transcribe File page."""
+        """Build the Transcribe File page with drag-and-drop zone."""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -383,12 +525,16 @@ class SettingsWindow(QWidget):
         layout.addWidget(title)
 
         desc = QLabel(
-            "Select an audio file to transcribe. Supports M4A, CAF, AAC, "
-            "AIFF, MP3, WAV, and QTA formats."
+            "Select or drag an audio file to transcribe. Supports M4A, CAF, "
+            "AAC, AIFF, MP3, WAV, and QTA formats."
         )
         desc.setStyleSheet("color: #888; font-size: 12px;")
         desc.setWordWrap(True)
         layout.addWidget(desc)
+
+        # Drop zone
+        self._drop_zone = _DropZone(self)
+        layout.addWidget(self._drop_zone, stretch=1)
 
         btn = QPushButton("Choose File\u2026")
         btn.setStyleSheet(_BUTTON_STYLE)
@@ -601,23 +747,48 @@ class SettingsWindow(QWidget):
     # ------------------------------------------------------------------
 
     def refresh_history(self) -> None:
-        """Rebuild the history entry list."""
+        """Rebuild the history entry list, applying the current search filter."""
         # Clear existing rows
         while self._history_layout.count():
             item = self._history_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
+        query = self._history_search.text().strip().lower()
         entries = self._history.entries
+
+        if query:
+            entries = [e for e in entries if self._entry_matches(e, query)]
+
         has_entries = len(entries) > 0
         self._history_empty.setVisible(not has_entries)
         self._history_scroll.setVisible(has_entries)
+
+        if not has_entries and query:
+            self._history_empty.setText("No matching transcriptions")
+        else:
+            self._history_empty.setText("No recent transcriptions")
 
         for entry in entries:
             row = _HistoryRow(entry)
             self._history_layout.addWidget(row)
 
         self._history_layout.addStretch()
+
+    @staticmethod
+    def _entry_matches(entry: HistoryEntry, query: str) -> bool:
+        """Check if a history entry matches the search query."""
+        if entry.type == "hotkey":
+            return query in (entry.text or "").lower()
+        # File entry: match source name or output path
+        return (
+            query in (entry.source_name or "").lower()
+            or query in (entry.output_path or "").lower()
+        )
+
+    def _on_history_search(self) -> None:
+        """Filter history entries when search text changes."""
+        self.refresh_history()
 
     # ------------------------------------------------------------------
     # Combo helpers
@@ -656,6 +827,16 @@ class SettingsWindow(QWidget):
         hours = self._retention_combo.currentData()
         logger.info("Retention changed to %s hours", hours)
         self.retention_changed.emit(float(hours))
+
+    def _on_sound_changed(self) -> None:
+        enabled = self._sound_combo.currentData()
+        logger.info("Sound feedback changed to %s", enabled)
+        self.sound_enabled_changed.emit(enabled)
+
+    def _on_notification_changed(self) -> None:
+        enabled = self._notif_combo.currentData()
+        logger.info("Notifications changed to %s", enabled)
+        self.notification_enabled_changed.emit(enabled)
 
     def _on_transcribe_clicked(self) -> None:
         logger.info("Transcribe file requested from settings")

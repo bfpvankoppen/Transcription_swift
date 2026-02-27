@@ -18,6 +18,8 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_CONFIG = {
     "hotkey": ["cmd", "alt"],
     "history_retention_hours": 48,
+    "sound_enabled": True,
+    "notification_enabled": True,
 }
 
 
@@ -67,3 +69,23 @@ class Config:
         self._data["history_retention_hours"] = value
         self.save()
         logger.info("Config saved: history_retention_hours=%s", value)
+
+    @property
+    def sound_enabled(self) -> bool:
+        return self._data.get("sound_enabled", True)
+
+    @sound_enabled.setter
+    def sound_enabled(self, value: bool) -> None:
+        self._data["sound_enabled"] = value
+        self.save()
+        logger.info("Config saved: sound_enabled=%s", value)
+
+    @property
+    def notification_enabled(self) -> bool:
+        return self._data.get("notification_enabled", True)
+
+    @notification_enabled.setter
+    def notification_enabled(self, value: bool) -> None:
+        self._data["notification_enabled"] = value
+        self.save()
+        logger.info("Config saved: notification_enabled=%s", value)
