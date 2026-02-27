@@ -17,6 +17,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
     "hotkey": ["cmd", "alt"],
+    "history_retention_hours": 48,
 }
 
 
@@ -56,3 +57,13 @@ class Config:
         self._data["hotkey"] = value
         self.save()
         logger.info("Config saved: hotkey=%s", value)
+
+    @property
+    def history_retention_hours(self) -> float:
+        return self._data.get("history_retention_hours", 48)
+
+    @history_retention_hours.setter
+    def history_retention_hours(self, value: float) -> None:
+        self._data["history_retention_hours"] = value
+        self.save()
+        logger.info("Config saved: history_retention_hours=%s", value)

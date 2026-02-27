@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from src.config import Config
 from src.file_transcriber import FileTranscriber, FileInfo
+from src.history import HistoryManager
+from src.history_window import HistoryWindow
 from src.hotkey import ConfigurableHotkeyListener, HotkeyBridge, format_hotkey
 from src.overlay import RecordingOverlay
 from src.paster import paste_text
@@ -53,9 +55,21 @@ class TranscriptionApp(QObject):
         self._recorder = AudioRecorder()
         self._transcriber = Transcriber()
 
-        # Settings window
-        self._settings_window = SettingsWindow(self._config.hotkey)
+        # History
+        self._history = HistoryManager(
+            retention_hours=self._config.history_retention_hours,
+        )
+        self._history_window = HistoryWindow(self._history)
+
+        # Settings window (main hub — needs history manager)
+        self._settings_window = SettingsWindow(
+            self._config.hotkey,
+            history=self._history,
+            retention_hours=self._config.history_retention_hours,
+        )
         self._settings_window.hotkey_changed.connect(self._on_hotkey_changed)
+        self._settings_window.retention_changed.connect(self._on_retention_changed)
+        self._settings_window.transcribe_file_requested.connect(self._on_transcribe_file)
 
         # File transcription window
         self._transcription_window = TranscriptionWindow()
@@ -103,13 +117,22 @@ class TranscriptionApp(QObject):
         our app as a side effect, so by the time _on_toggle runs, we're already
         the frontmost app. Capture the real target here while the user's app
         is still active.
+
+        If the frontmost app is Parkeet itself (e.g. history or settings window
+        is open), set target to None so we don't paste back into our own UI.
         """
         try:
             import AppKit
-            self._target_app = (
+            import os
+            captured = (
                 AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
             )
-            logger.debug("Captured target app: %s", self._target_app.localizedName() if self._target_app else None)
+            if captured and captured.processIdentifier() == os.getpid():
+                logger.debug("Frontmost app is Parkeet, skipping capture")
+                self._target_app = None
+            else:
+                self._target_app = captured
+                logger.debug("Captured target app: %s", captured.localizedName() if captured else None)
         except Exception:
             logger.debug("Could not capture target app", exc_info=True)
             self._target_app = None
@@ -133,9 +156,23 @@ class TranscriptionApp(QObject):
 
     def show_settings(self) -> None:
         """Show or raise the settings window."""
-        self._settings_window.show()
-        self._settings_window.raise_()
-        self._settings_window.activateWindow()
+        self._settings_window.show_page(SettingsWindow.PAGE_HOTKEYS)
+
+    def _show_history(self) -> None:
+        """Show history page in the settings window."""
+        self._settings_window.show_page(SettingsWindow.PAGE_HISTORY)
+
+    def _on_tray_activated(self, reason) -> None:
+        """Show settings window when tray icon is clicked."""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.show_settings()
+
+    @pyqtSlot(float)
+    def _on_retention_changed(self, hours: float) -> None:
+        """Called when the user changes history retention in settings."""
+        logger.info("History retention changed to %s hours", hours)
+        self._config.history_retention_hours = hours
+        self._history.retention_hours = hours
 
     @pyqtSlot(list)
     def _on_hotkey_changed(self, new_hotkey: list[str]) -> None:
@@ -183,11 +220,6 @@ class TranscriptionApp(QObject):
                 return
 
         self._tray.setToolTip("Parkeet \u2014 Loading model\u2026")
-        self._tray.showMessage(
-            "Parkeet",
-            "Loading model\u2026 This may take a moment on first run.",
-            QSystemTrayIcon.MessageIcon.Information,
-        )
 
         # Load model in background thread
         def _load():
@@ -201,6 +233,9 @@ class TranscriptionApp(QObject):
         # Start hotkey listener
         self._hotkey_listener.start()
 
+        # Show main settings window on launch
+        self.show_settings()
+
     @pyqtSlot(str)
     def _on_status_update(self, message: str) -> None:
         if not self._tray:
@@ -209,11 +244,6 @@ class TranscriptionApp(QObject):
         if message == "ready":
             logger.info("Model ready, app is operational")
             self._tray.setToolTip(f"Parkeet \u2014 Ready ({hk} to record)")
-            self._tray.showMessage(
-                "Parkeet",
-                f"Ready! Press {hk} to record.",
-                QSystemTrayIcon.MessageIcon.Information,
-            )
         else:
             self._tray.setToolTip(f"Parkeet \u2014 {message}")
 
@@ -230,12 +260,23 @@ class TranscriptionApp(QObject):
             return
         logger.info("Recording started")
         self._recording = True
+
+        # Hide any open Parkeet windows so the user's app regains focus
+        self._hide_parkeet_windows()
+
         self._recorder.start()
         self._overlay.fade_in()
         self._level_timer.start()
         if self._tray:
             self._tray.setToolTip("Parkeet \u2014 Recording\u2026")
         QTimer.singleShot(150, self._refocus_target)
+
+    def _hide_parkeet_windows(self) -> None:
+        """Hide settings, history, and transcription windows during recording."""
+        for window in (self._settings_window, self._history_window, self._transcription_window):
+            if window.isVisible():
+                window.hide()
+                logger.debug("Hid %s for recording", window.windowTitle())
 
     def _stop_recording(self) -> None:
         logger.info("Recording stopped")
@@ -265,6 +306,7 @@ class TranscriptionApp(QObject):
     def _on_transcription_done(self, text: str) -> None:
         if text.strip():
             logger.info("Transcription done (%d chars), pasting", len(text.strip()))
+            self._history.add_hotkey(text.strip())
         else:
             logger.warning("Transcription returned empty text")
         self._overlay.fade_out()
@@ -305,6 +347,9 @@ class TranscriptionApp(QObject):
         transcribe_action = menu.addAction("Transcribe File\u2026")
         transcribe_action.triggered.connect(self._on_transcribe_file)
 
+        history_action = menu.addAction("Transcription History\u2026")
+        history_action.triggered.connect(self._show_history)
+
         menu.addSeparator()
 
         quit_action = menu.addAction("Quit Parkeet")
@@ -312,6 +357,7 @@ class TranscriptionApp(QObject):
 
         self._tray.setContextMenu(menu)
         self._tray.setToolTip("Parkeet")
+        self._tray.activated.connect(self._on_tray_activated)
         self._tray.show()
 
     # ------------------------------------------------------------------
@@ -443,6 +489,8 @@ class TranscriptionApp(QObject):
             save_path.parent.mkdir(parents=True, exist_ok=True)
             save_path.write_text(text, encoding="utf-8")
             logger.info("Transcription saved to %s (%d chars)", save_path, len(text))
+            source_name = self._current_file_path.name if self._current_file_path else "unknown"
+            self._history.add_file(source_name, str(save_path))
         except OSError:
             logger.exception("Failed to save transcription to %s", save_path)
             if self._tray:

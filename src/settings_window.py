@@ -1,22 +1,35 @@
 """
 Settings window for Parkeet.
 
-Minimal preferences UI with two dropdown selectors for the hotkey combo.
+macOS System Settings style: sidebar on the left, content pane on the right.
+Acts as the main hub — hotkey settings, transcription history, and file transcription.
 """
 
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from src.history import HistoryEntry, HistoryManager
+from src.history_window import _HistoryRow
 from src.hotkey import DISPLAY_NAMES
+
+logger = logging.getLogger(__name__)
 
 # Modifier options: (config_name, display_label)
 _MODIFIER_OPTIONS = [
@@ -26,56 +39,589 @@ _MODIFIER_OPTIONS = [
     ("shift", f"{DISPLAY_NAMES['shift']} Shift"),
 ]
 
+# Retention presets: (display_label, hours)
+_RETENTION_OPTIONS = [
+    ("1 day", 24),
+    ("2 days", 48),
+    ("7 days", 168),
+    ("14 days", 336),
+    ("30 days", 720),
+    ("90 days", 2160),
+]
+
+_WINDOW_STYLE = """
+    SettingsWindow {
+        background-color: #1E1E1E;
+    }
+"""
+
+_SIDEBAR_STYLE = """
+    QListWidget {
+        background-color: #252525;
+        border: none;
+        border-right: 1px solid #333;
+        outline: none;
+        font-size: 13px;
+        padding: 8px 0;
+    }
+    QListWidget::item {
+        color: #CCC;
+        padding: 6px 16px;
+        border-radius: 6px;
+        margin: 1px 8px;
+    }
+    QListWidget::item:selected {
+        background-color: #3A3A3A;
+        color: #FFF;
+    }
+    QListWidget::item:hover:!selected {
+        background-color: #303030;
+    }
+"""
+
+_GROUP_STYLE = """
+    QFrame#GroupBox {
+        background-color: #2A2A2A;
+        border: 1px solid #3A3A3A;
+        border-radius: 8px;
+    }
+"""
+
+_SEPARATOR_STYLE = """
+    QFrame#Separator {
+        background-color: #3A3A3A;
+        border: none;
+        max-height: 1px;
+    }
+"""
+
+_TITLE_STYLE = "color: #FFF; font-size: 18px; font-weight: bold;"
+_LABEL_STYLE = "color: #DDD; font-size: 13px;"
+_BUTTON_STYLE = """
+    QPushButton {
+        background-color: #3A3A3A;
+        color: #DDD;
+        border: 1px solid #4A4A4A;
+        border-radius: 6px;
+        padding: 8px 20px;
+        font-size: 13px;
+    }
+    QPushButton:hover {
+        background-color: #4A4A4A;
+        border: 1px solid #5A5A5A;
+    }
+    QPushButton:pressed {
+        background-color: #555;
+    }
+"""
+_COMBO_STYLE = """
+    QComboBox {
+        background-color: #3A3A3A;
+        color: #DDD;
+        border: 1px solid #4A4A4A;
+        border-radius: 6px;
+        padding: 4px 8px;
+        min-width: 140px;
+    }
+    QComboBox:hover {
+        border: 1px solid #5A5A5A;
+    }
+    QComboBox::drop-down {
+        border: none;
+        width: 20px;
+    }
+    QComboBox::down-arrow {
+        image: none;
+        border: none;
+    }
+    QComboBox QAbstractItemView {
+        background-color: #3A3A3A;
+        color: #DDD;
+        selection-background-color: #4A7AFF;
+        border: 1px solid #4A4A4A;
+        border-radius: 4px;
+    }
+"""
+
+
+def _make_separator() -> QFrame:
+    """Create a 1px horizontal separator line."""
+    sep = QFrame()
+    sep.setObjectName("Separator")
+    sep.setFrameShape(QFrame.Shape.HLine)
+    sep.setStyleSheet(_SEPARATOR_STYLE)
+    sep.setFixedHeight(1)
+    return sep
+
+
+def _make_row(label_text: str, control: QWidget) -> QHBoxLayout:
+    """Create a label-left / control-right row."""
+    row = QHBoxLayout()
+    row.setContentsMargins(16, 10, 16, 10)
+    label = QLabel(label_text)
+    label.setStyleSheet(_LABEL_STYLE)
+    row.addWidget(label)
+    row.addStretch()
+    row.addWidget(control)
+    return row
+
+
+def _make_group() -> QFrame:
+    """Create a rounded-rectangle group container."""
+    frame = QFrame()
+    frame.setObjectName("GroupBox")
+    frame.setStyleSheet(_GROUP_STYLE)
+    return frame
+
 
 class SettingsWindow(QWidget):
-    """Minimal settings window for configuring the recording hotkey."""
+    """macOS System Settings style: sidebar + content pane."""
 
     hotkey_changed = pyqtSignal(list)
+    retention_changed = pyqtSignal(float)
+    transcribe_file_requested = pyqtSignal()
 
-    def __init__(self, current_hotkey: list[str], parent=None) -> None:
+    # Sidebar page indices
+    PAGE_HOTKEYS = 0
+    PAGE_HISTORY = 1
+    PAGE_TRANSCRIBE = 2
+    PAGE_ABOUT = 3
+    PAGE_ATTRIBUTION = 4
+
+    def __init__(
+        self,
+        current_hotkey: list[str],
+        history: HistoryManager,
+        retention_hours: float = 48.0,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
+        self._history = history
+
         self.setWindowTitle("Parkeet Settings")
-        self.setMinimumWidth(320)
+        self.setFixedSize(920, 500)
         self.setWindowFlags(
             Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint
         )
-        # Close hides — Dock click re-shows without recreating.
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setStyleSheet(_WINDOW_STYLE)
 
-        layout = QVBoxLayout(self)
+        # --- Main layout: sidebar | content ---
+        main = QHBoxLayout(self)
+        main.setContentsMargins(0, 0, 0, 0)
+        main.setSpacing(0)
+
+        # Sidebar container (list + quit button)
+        sidebar_widget = QWidget()
+        sidebar_widget.setFixedWidth(170)
+        sidebar_widget.setStyleSheet("background-color: #252525;")
+        sidebar_layout = QVBoxLayout(sidebar_widget)
+        sidebar_layout.setContentsMargins(0, 0, 0, 12)
+        sidebar_layout.setSpacing(0)
+
+        self._sidebar = QListWidget()
+        self._sidebar.setStyleSheet(_SIDEBAR_STYLE)
+        self._sidebar.addItem(QListWidgetItem("Hotkeys"))
+        self._sidebar.addItem(QListWidgetItem("History"))
+        self._sidebar.addItem(QListWidgetItem("Transcribe File"))
+        self._sidebar.addItem(QListWidgetItem("About"))
+        self._sidebar.setCurrentRow(0)
+        self._sidebar.currentRowChanged.connect(self._on_page_changed)
+        sidebar_layout.addWidget(self._sidebar)
+
+        _bottom_btn_style = """
+            QPushButton {{
+                background-color: transparent;
+                color: {color};
+                border: none;
+                padding: 6px 16px;
+                font-size: 12px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                color: {hover};
+            }}
+        """
+
+        attr_btn = QPushButton("Attribution")
+        attr_btn.setStyleSheet(_bottom_btn_style.format(color="#888", hover="#BBB"))
+        attr_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        attr_btn.clicked.connect(lambda: self._show_page_deselect(self.PAGE_ATTRIBUTION))
+        sidebar_layout.addWidget(attr_btn)
+
+        quit_btn = QPushButton("Quit Parkeet")
+        quit_btn.setStyleSheet(_bottom_btn_style.format(color="#E55", hover="#F77"))
+        quit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        quit_btn.clicked.connect(QApplication.quit)
+        sidebar_layout.addWidget(quit_btn)
+
+        main.addWidget(sidebar_widget)
+
+        # Content pane (stacked pages)
+        self._pages = QStackedWidget()
+        self._pages.addWidget(self._build_hotkeys_page(current_hotkey))
+        self._pages.addWidget(self._build_history_page(retention_hours))
+        self._pages.addWidget(self._build_transcribe_page())
+        self._pages.addWidget(self._build_about_page())
+        self._pages.addWidget(self._build_attribution_page())
+        main.addWidget(self._pages, stretch=1)
+
+    # ------------------------------------------------------------------
+    # Page builders
+    # ------------------------------------------------------------------
+
+    def _build_hotkeys_page(self, current_hotkey: list[str]) -> QWidget:
+        """Build the Hotkeys settings page."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("Hotkeys")
+        title.setStyleSheet(_TITLE_STYLE)
+        layout.addWidget(title)
+
+        desc = QLabel("Choose the modifier keys used to start and stop recording.")
+        desc.setStyleSheet("color: #888; font-size: 12px;")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
 
         # Hotkey group
-        group = QGroupBox("Recording Hotkey")
-        group_layout = QHBoxLayout(group)
+        group = _make_group()
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(0)
 
-        label1 = QLabel("Key 1:")
         self._combo1 = QComboBox()
-        plus_label = QLabel("+")
-        label2 = QLabel("Key 2:")
+        self._combo1.setStyleSheet(_COMBO_STYLE)
         self._combo2 = QComboBox()
+        self._combo2.setStyleSheet(_COMBO_STYLE)
 
         for config_name, display in _MODIFIER_OPTIONS:
             self._combo1.addItem(display, config_name)
             self._combo2.addItem(display, config_name)
 
-        # Set current values
         key1 = current_hotkey[0] if len(current_hotkey) > 0 else "cmd"
         key2 = current_hotkey[1] if len(current_hotkey) > 1 else "alt"
         self._set_combo_value(self._combo1, key1)
         self._set_combo_value(self._combo2, key2)
 
-        self._combo1.currentIndexChanged.connect(self._on_combo_changed)
-        self._combo2.currentIndexChanged.connect(self._on_combo_changed)
+        self._combo1.currentIndexChanged.connect(self._on_hotkey_combo_changed)
+        self._combo2.currentIndexChanged.connect(self._on_hotkey_combo_changed)
 
-        group_layout.addWidget(label1)
-        group_layout.addWidget(self._combo1)
-        group_layout.addWidget(plus_label)
-        group_layout.addWidget(label2)
-        group_layout.addWidget(self._combo2)
-        group_layout.addStretch()
+        group_layout.addLayout(_make_row("Key 1", self._combo1))
+        group_layout.addWidget(_make_separator())
+        group_layout.addLayout(_make_row("Key 2", self._combo2))
 
         layout.addWidget(group)
         layout.addStretch()
+        return page
+
+    def _build_history_page(self, retention_hours: float) -> QWidget:
+        """Build the History page: retention setting + scrollable entry list."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("History")
+        title.setStyleSheet(_TITLE_STYLE)
+        layout.addWidget(title)
+
+        # Retention setting
+        group = _make_group()
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(0)
+
+        self._retention_combo = QComboBox()
+        self._retention_combo.setStyleSheet(_COMBO_STYLE)
+        for display, hours in _RETENTION_OPTIONS:
+            self._retention_combo.addItem(display, hours)
+
+        self._set_retention_value(retention_hours)
+        self._retention_combo.currentIndexChanged.connect(
+            self._on_retention_changed
+        )
+
+        group_layout.addLayout(
+            _make_row("Keep transcriptions", self._retention_combo)
+        )
+        layout.addWidget(group)
+
+        # History entries scroll area
+        self._history_empty = QLabel("No recent transcriptions")
+        self._history_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._history_empty.setStyleSheet(
+            "color: #888; font-style: italic; padding: 40px;"
+        )
+
+        self._history_scroll = QScrollArea()
+        self._history_scroll.setWidgetResizable(True)
+        self._history_scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        self._history_container = QWidget()
+        self._history_layout = QVBoxLayout(self._history_container)
+        self._history_layout.setContentsMargins(0, 0, 0, 0)
+        self._history_layout.setSpacing(2)
+        self._history_scroll.setWidget(self._history_container)
+
+        layout.addWidget(self._history_empty)
+        layout.addWidget(self._history_scroll, stretch=1)
+
+        return page
+
+    def _build_transcribe_page(self) -> QWidget:
+        """Build the Transcribe File page."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("Transcribe File")
+        title.setStyleSheet(_TITLE_STYLE)
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "Select an audio file to transcribe. Supports M4A, CAF, AAC, "
+            "AIFF, MP3, WAV, and QTA formats."
+        )
+        desc.setStyleSheet("color: #888; font-size: 12px;")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        btn = QPushButton("Choose File\u2026")
+        btn.setStyleSheet(_BUTTON_STYLE)
+        btn.setFixedWidth(160)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(self._on_transcribe_clicked)
+        layout.addWidget(btn)
+
+        layout.addStretch()
+        return page
+
+    def _build_about_page(self) -> QWidget:
+        """Build the About page with model info, languages, and limitations."""
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("About")
+        title.setStyleSheet(_TITLE_STYLE)
+        layout.addWidget(title)
+
+        app_desc = QLabel("Parkeet \u2014 Offline speech-to-text for macOS")
+        app_desc.setStyleSheet("color: #CCC; font-size: 13px;")
+        layout.addWidget(app_desc)
+
+        _info_style = "color: #CCC; font-size: 12px;"
+        _heading_style = "color: #FFF; font-size: 13px; font-weight: bold;"
+
+        # --- Model ---
+        model_group = _make_group()
+        mg = QVBoxLayout(model_group)
+        mg.setContentsMargins(16, 12, 16, 12)
+        mg.setSpacing(8)
+
+        mg.addWidget(self._styled_label("Speech Recognition Model", _heading_style))
+        mg.addWidget(self._rich_label(
+            "<b>NVIDIA Parakeet TDT 0.6B v3</b> \u2014 a 600-million parameter "
+            "FastConformer model trained on ~670,000 hours of multilingual audio. "
+            "Ranked #1 on the HuggingFace Open ASR Leaderboard at release with "
+            "an average Word Error Rate of <b>6.34%</b> on English benchmarks."
+            "<br><br>"
+            "All transcription happens locally on your Mac \u2014 no audio data "
+            "is sent to the cloud."
+        ))
+        layout.addWidget(model_group)
+
+        # --- Capabilities ---
+        cap_group = _make_group()
+        cg = QVBoxLayout(cap_group)
+        cg.setContentsMargins(16, 12, 16, 12)
+        cg.setSpacing(8)
+
+        cg.addWidget(self._styled_label("Capabilities", _heading_style))
+        cg.addWidget(self._rich_label(
+            "\u2022 Automatic language detection \u2014 no need to select a language<br>"
+            "\u2022 Automatic punctuation and capitalization<br>"
+            "\u2022 Processes audio at roughly 3x real-time on CPU<br>"
+            "\u2022 INT8 quantized for efficient CPU inference (~642 MB on disk)"
+        ))
+        layout.addWidget(cap_group)
+
+        # --- Languages ---
+        lang_group = _make_group()
+        lg = QVBoxLayout(lang_group)
+        lg.setContentsMargins(16, 12, 16, 12)
+        lg.setSpacing(8)
+
+        lg.addWidget(self._styled_label("Supported Languages (25)", _heading_style))
+        lg.addWidget(self._rich_label(
+            "<b>Best accuracy:</b> English, Spanish, Italian, Portuguese, "
+            "German, Russian, French<br><br>"
+            "<b>Good accuracy:</b> Ukrainian, Dutch, Polish, Slovak, Czech, "
+            "Bulgarian, Croatian, Romanian, Finnish<br><br>"
+            "<b>Moderate accuracy:</b> Hungarian, Swedish, Danish, Estonian, "
+            "Greek, Lithuanian, Maltese, Latvian, Slovenian"
+        ))
+        lg.addWidget(self._rich_label(
+            "<span style='color: #888;'>Coverage: European languages only. "
+            "Does not support Asian, African, or Middle Eastern languages.</span>"
+        ))
+        layout.addWidget(lang_group)
+
+        # --- Limitations ---
+        lim_group = _make_group()
+        lmg = QVBoxLayout(lim_group)
+        lmg.setContentsMargins(16, 12, 16, 12)
+        lmg.setSpacing(8)
+
+        lmg.addWidget(self._styled_label("Limitations", _heading_style))
+        lmg.addWidget(self._rich_label(
+            "\u2022 <b>Background noise</b> \u2014 accuracy drops with increasing "
+            "noise; best results with clean audio<br>"
+            "\u2022 <b>Overlapping speakers</b> \u2014 no speaker separation; "
+            "meetings with crosstalk have higher error rates<br>"
+            "\u2022 <b>Specialized vocabulary</b> \u2014 uncommon names, technical "
+            "jargon, or brand names may not be recognized<br>"
+            "\u2022 <b>Accents</b> \u2014 strong regional accents may reduce accuracy<br>"
+            "\u2022 <b>Portuguese</b> \u2014 trained on European Portuguese; "
+            "Brazilian Portuguese may underperform"
+        ))
+        layout.addWidget(lim_group)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll)
+        return page
+
+    def _build_attribution_page(self) -> QWidget:
+        """Build the Attribution page with credits and licenses."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        title = QLabel("Attribution")
+        title.setStyleSheet(_TITLE_STYLE)
+        layout.addWidget(title)
+
+        app_desc = QLabel("Parkeet \u2014 Offline speech-to-text for macOS")
+        app_desc.setStyleSheet("color: #CCC; font-size: 13px;")
+        layout.addWidget(app_desc)
+
+        # Credits group
+        group = _make_group()
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(16, 12, 16, 12)
+        group_layout.setSpacing(10)
+
+        model_label = QLabel(
+            "Speech recognition powered by "
+            "<b>NVIDIA Parakeet TDT 0.6B v3</b>"
+            "<br>"
+            "<span style='color: #888;'>License: CC-BY-4.0 \u2014 "
+            "creativecommons.org/licenses/by/4.0</span>"
+        )
+        model_label.setStyleSheet("color: #CCC; font-size: 12px;")
+        model_label.setWordWrap(True)
+        model_label.setTextFormat(Qt.TextFormat.RichText)
+        group_layout.addWidget(model_label)
+
+        group_layout.addWidget(_make_separator())
+
+        engine_label = QLabel(
+            "Inference engine: "
+            "<b>sherpa-onnx</b> by k2-fsa"
+            "<br>"
+            "<span style='color: #888;'>License: Apache 2.0 \u2014 "
+            "github.com/k2-fsa/sherpa-onnx</span>"
+        )
+        engine_label.setStyleSheet("color: #CCC; font-size: 12px;")
+        engine_label.setWordWrap(True)
+        engine_label.setTextFormat(Qt.TextFormat.RichText)
+        group_layout.addWidget(engine_label)
+
+        layout.addWidget(group)
+        layout.addStretch()
+        return page
+
+    # ------------------------------------------------------------------
+    # Label helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _styled_label(text: str, style: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet(style)
+        return label
+
+    @staticmethod
+    def _rich_label(html: str) -> QLabel:
+        label = QLabel(html)
+        label.setStyleSheet("color: #CCC; font-size: 12px;")
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.TextFormat.RichText)
+        return label
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+
+    def _on_page_changed(self, index: int) -> None:
+        self._pages.setCurrentIndex(index)
+        if index == self.PAGE_HISTORY:
+            self.refresh_history()
+
+    def _show_page_deselect(self, page_index: int) -> None:
+        """Show a page that isn't in the sidebar (e.g. Attribution)."""
+        self._sidebar.clearSelection()
+        self._sidebar.setCurrentRow(-1)
+        self._pages.setCurrentIndex(page_index)
+
+    def show_page(self, index: int) -> None:
+        """Show the window and navigate to a specific page."""
+        self._sidebar.setCurrentRow(index)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    # ------------------------------------------------------------------
+    # History
+    # ------------------------------------------------------------------
+
+    def refresh_history(self) -> None:
+        """Rebuild the history entry list."""
+        # Clear existing rows
+        while self._history_layout.count():
+            item = self._history_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        entries = self._history.entries
+        has_entries = len(entries) > 0
+        self._history_empty.setVisible(not has_entries)
+        self._history_scroll.setVisible(has_entries)
+
+        for entry in entries:
+            row = _HistoryRow(entry)
+            self._history_layout.addWidget(row)
+
+        self._history_layout.addStretch()
+
+    # ------------------------------------------------------------------
+    # Combo helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _set_combo_value(combo: QComboBox, value: str) -> None:
@@ -84,12 +630,40 @@ class SettingsWindow(QWidget):
                 combo.setCurrentIndex(i)
                 return
 
-    def _on_combo_changed(self) -> None:
+    def _set_retention_value(self, hours: float) -> None:
+        """Select the closest matching retention preset."""
+        best_idx = 0
+        best_diff = float("inf")
+        for i in range(self._retention_combo.count()):
+            diff = abs(self._retention_combo.itemData(i) - hours)
+            if diff < best_diff:
+                best_diff = diff
+                best_idx = i
+        self._retention_combo.setCurrentIndex(best_idx)
+
+    # ------------------------------------------------------------------
+    # Signal handlers
+    # ------------------------------------------------------------------
+
+    def _on_hotkey_combo_changed(self) -> None:
         key1 = self._combo1.currentData()
         key2 = self._combo2.currentData()
         if key1 == key2:
-            return  # ignore duplicate selection
+            return
         self.hotkey_changed.emit([key1, key2])
+
+    def _on_retention_changed(self) -> None:
+        hours = self._retention_combo.currentData()
+        logger.info("Retention changed to %s hours", hours)
+        self.retention_changed.emit(float(hours))
+
+    def _on_transcribe_clicked(self) -> None:
+        logger.info("Transcribe file requested from settings")
+        self.transcribe_file_requested.emit()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def update_hotkey_display(self, hotkey: list[str]) -> None:
         """Update the dropdowns to reflect a new hotkey."""
