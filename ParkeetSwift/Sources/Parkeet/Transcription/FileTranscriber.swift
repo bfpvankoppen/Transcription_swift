@@ -17,11 +17,21 @@ final class FileTranscriber {
         self.transcriber = transcriber
     }
 
-    struct FileInfo {
-        let duration: Double
-        let sampleRate: Double
-        let channels: Int
-        let filename: String
+    /// Progress update emitted after each chunk.
+    struct Progress: Sendable {
+        let chunksCompleted: Int
+        let totalChunks: Int
+        let elapsedSeconds: Double
+        let estimatedRemainingSeconds: Double
+        let fraction: Double  // 0.0 – 1.0
+    }
+
+    // MARK: - File Info
+
+    /// Get audio file duration without loading the full file.
+    func getAudioDuration(url: URL) async throws -> Double {
+        let file = try AVAudioFile(forReading: url)
+        return Double(file.length) / file.processingFormat.sampleRate
     }
 
     // MARK: - Transcription
@@ -29,7 +39,7 @@ final class FileTranscriber {
     /// Transcribe an audio file with progress callbacks.
     func transcribe(
         fileURL: URL,
-        onProgress: @escaping @Sendable (Double) -> Void
+        onProgress: @escaping @Sendable (Progress) -> Void
     ) async throws -> String {
         cancelled = false
 
@@ -52,7 +62,9 @@ final class FileTranscriber {
         log.info("Split into \(chunks.count) chunks (\(String(format: "%.1f", Double(totalSamples) / sampleRate))s total)")
 
         // 3. Transcribe chunks sequentially
+        let startTime = CFAbsoluteTimeGetCurrent()
         var results: [String] = []
+
         for (index, chunk) in chunks.enumerated() {
             if cancelled {
                 log.info("File transcription cancelled at chunk \(index)/\(chunks.count)")
@@ -64,8 +76,18 @@ final class FileTranscriber {
                 results.append(text)
             }
 
-            let progress = Double(index + 1) / Double(chunks.count)
-            onProgress(progress)
+            let chunksCompleted = index + 1
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            let secondsPerChunk = elapsed / Double(chunksCompleted)
+            let remaining = secondsPerChunk * Double(chunks.count - chunksCompleted)
+
+            onProgress(Progress(
+                chunksCompleted: chunksCompleted,
+                totalChunks: chunks.count,
+                elapsedSeconds: elapsed,
+                estimatedRemainingSeconds: remaining,
+                fraction: Double(chunksCompleted) / Double(chunks.count)
+            ))
         }
 
         let fullText = results.joined(separator: " ")

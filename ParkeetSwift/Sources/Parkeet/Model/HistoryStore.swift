@@ -61,6 +61,8 @@ final class HistoryStore {
             log.info("Loaded \(self.entries.count) history entries")
         } catch {
             log.error("Failed to load history: \(error)")
+            log.error("Removing incompatible history file")
+            try? FileManager.default.removeItem(at: storageURL)
             entries = []
         }
     }

@@ -37,7 +37,9 @@ final class AppState {
     let soundPlayer = SoundPlayer()
 
     private var levelTimer: Timer?
+    private var permissionTimer: Timer?
     private var targetApp: NSRunningApplication?
+    private var hotkeyStarted = false
 
     private let log = Logger(subsystem: "com.parkeet.app", category: "AppState")
 
@@ -72,14 +74,46 @@ final class AppState {
             }
         }
 
-        // Set up hotkey
+        // Set up hotkey callback
         hotkeyListener.onToggle = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
                 self.handleHotkeyToggle()
             }
         }
+
+        // Start hotkey if accessibility is already granted, otherwise poll for it
+        if PermissionChecker.isAccessibilityGranted {
+            startHotkey()
+        } else {
+            log.info("Waiting for Accessibility permission — polling every 2s")
+            statusText = "Waiting for Accessibility permission…"
+            permissionTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.checkPermissionAndStartHotkey()
+                }
+            }
+        }
+    }
+
+    private func checkPermissionAndStartHotkey() {
+        guard !hotkeyStarted, PermissionChecker.isAccessibilityGranted else { return }
+
+        log.info("Accessibility permission granted — starting hotkey listener")
+        permissionTimer?.invalidate()
+        permissionTimer = nil
+
+        if modelLoaded {
+            statusText = "Ready"
+        }
+
+        startHotkey()
+    }
+
+    private func startHotkey() {
         hotkeyListener.start(modifiers: config.hotkeyModifiers)
+        hotkeyStarted = true
     }
 
     // MARK: - Hotkey Toggle
@@ -107,7 +141,7 @@ final class AppState {
         targetApp = NSWorkspace.shared.frontmostApplication
 
         state = .recording
-        log.info("Recording started")
+        log.notice("Recording started")
 
         if config.soundEnabled {
             soundPlayer.play(.recordStart)
@@ -135,7 +169,7 @@ final class AppState {
 
     private func stopRecording() {
         state = .transcribing
-        log.info("Recording stopped, starting transcription")
+        log.notice("Recording stopped, starting transcription")
 
         if config.soundEnabled {
             soundPlayer.play(.recordStop)
@@ -194,7 +228,7 @@ final class AppState {
     private func paste(text: String) {
         // Re-focus the target app
         if let app = targetApp {
-            app.activate(options: .activateIgnoringOtherApps)
+            app.activate()
         }
 
         // Small delay for focus to settle, then paste
@@ -216,7 +250,10 @@ final class AppState {
 
     // MARK: - File Transcription
 
-    func transcribeFile(url: URL) async -> String? {
+    func transcribeFile(
+        url: URL,
+        onProgress: @escaping @Sendable (FileTranscriber.Progress) -> Void
+    ) async -> String? {
         guard modelLoaded else { return nil }
 
         log.info("Starting file transcription: \(url.lastPathComponent)")
@@ -225,11 +262,7 @@ final class AppState {
         do {
             let result = try await fileTranscriber.transcribe(
                 fileURL: url,
-                onProgress: { progress in
-                    Task { @MainActor in
-                        self.statusText = "Transcribing: \(Int(progress * 100))%"
-                    }
-                }
+                onProgress: onProgress
             )
 
             historyStore.add(entry: HistoryEntry(

@@ -66,16 +66,19 @@ final class Transcriber: @unchecked Sendable {
             return ""
         }
 
+        let audioDuration = Double(audio.count) / 16000.0
+        log.notice("Transcribing \(String(format: "%.1f", audioDuration))s audio (\(audio.count) samples)")
+
         let startTime = CFAbsoluteTimeGetCurrent()
         let result = recognizer.decode(samples: audio, sampleRate: 16000)
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
-        let audioDuration = Double(audio.count) / 16000.0
-        let rtf = elapsed / audioDuration
+        let rtf = elapsed / max(audioDuration, 0.001)
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        log.info("Transcribed \(String(format: "%.1f", audioDuration))s audio in \(String(format: "%.1f", elapsed))s (RTF: \(String(format: "%.2f", rtf)))")
+        log.notice("Result: \(text.isEmpty ? "(empty)" : "'\(text)'") in \(String(format: "%.1f", elapsed))s (RTF: \(String(format: "%.2f", rtf)))")
 
-        return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text
     }
 
     // MARK: - Model Path
@@ -91,7 +94,9 @@ final class Transcriber: @unchecked Sendable {
         // 2. Check project Resources directory (development)
         let devPath = URL(fileURLWithPath: #file)
             .deletingLastPathComponent()  // Transcription/
+            .deletingLastPathComponent()  // Parkeet/
             .deletingLastPathComponent()  // Sources/
+            .deletingLastPathComponent()  // ParkeetSwift/
             .appendingPathComponent("Resources/models/\(modelDirName)")
         if FileManager.default.fileExists(atPath: devPath.path) {
             return devPath

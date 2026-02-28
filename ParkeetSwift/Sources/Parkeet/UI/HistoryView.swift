@@ -111,10 +111,12 @@ struct HistoryRowView: View {
                     .fill(entry.type == .hotkey ? .blue : .green)
                     .frame(width: 8, height: 8)
 
-                // Preview text
-                Text(previewText)
-                    .lineLimit(1)
-                    .font(.system(size: 13))
+                // Preview text (hidden when expanded to avoid duplication)
+                if !isExpanded {
+                    Text(previewText)
+                        .lineLimit(1)
+                        .font(.system(size: 13))
+                }
 
                 Spacer()
 

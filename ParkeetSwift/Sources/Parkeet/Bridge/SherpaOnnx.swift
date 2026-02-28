@@ -1,4 +1,5 @@
 import Foundation
+import CSherpaOnnx
 
 // MARK: - Offline Transducer Model Config
 
@@ -24,36 +25,16 @@ func sherpaOnnxOfflineModelConfig(
     provider: String = "cpu",
     modelType: String = ""
 ) -> SherpaOnnxOfflineModelConfig {
-    return SherpaOnnxOfflineModelConfig(
-        transducer: transducer,
-        paraformer: SherpaOnnxOfflineParaformerModelConfig(model: toCPointer("")),
-        nemo_ctc: SherpaOnnxOfflineNemoEncDecCtcModelConfig(model: toCPointer("")),
-        whisper: SherpaOnnxOfflineWhisperModelConfig(
-            encoder: toCPointer(""),
-            decoder: toCPointer(""),
-            language: toCPointer(""),
-            task: toCPointer(""),
-            tail_paddings: -1
-        ),
-        tdnn: SherpaOnnxOfflineTdnnModelConfig(model: toCPointer("")),
-        tokens: toCPointer(tokens),
-        num_threads: numThreads,
-        debug: debug,
-        provider: toCPointer(provider),
-        model_type: toCPointer(modelType),
-        modeling_unit: toCPointer(""),
-        bpe_vocab: toCPointer(""),
-        telespeech_ctc: toCPointer(""),
-        sense_voice: SherpaOnnxOfflineSenseVoiceModelConfig(
-            model: toCPointer(""),
-            language: toCPointer(""),
-            use_itn: 0
-        ),
-        fire_red_asr: SherpaOnnxOfflineFireRedAsrModelConfig(
-            encoder: toCPointer(""),
-            decoder: toCPointer("")
-        )
-    )
+    // Zero-initialize, then set only the fields we need.
+    // This avoids breaking when the C API adds new model types.
+    var config = SherpaOnnxOfflineModelConfig()
+    config.transducer = transducer
+    config.tokens = toCPointer(tokens)
+    config.num_threads = numThreads
+    config.debug = debug
+    config.provider = toCPointer(provider)
+    config.model_type = toCPointer(modelType)
+    return config
 }
 
 // MARK: - Offline Recognizer Config
@@ -76,7 +57,12 @@ func sherpaOnnxOfflineRecognizerConfig(
         hotwords_score: 1.5,
         rule_fsts: toCPointer(""),
         rule_fars: toCPointer(""),
-        blank_penalty: 0.0
+        blank_penalty: 0.0,
+        hr: SherpaOnnxHomophoneReplacerConfig(
+            dict_dir: toCPointer(""),
+            lexicon: toCPointer(""),
+            rule_fsts: toCPointer("")
+        )
     )
 }
 

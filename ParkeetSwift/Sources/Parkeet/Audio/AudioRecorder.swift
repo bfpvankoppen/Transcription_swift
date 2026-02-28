@@ -1,4 +1,5 @@
 import AVFoundation
+import AVFAudio
 import os
 
 /// Records audio from the default microphone at 16kHz mono with real-time level metering.
@@ -22,6 +23,13 @@ final class AudioRecorder: @unchecked Sendable {
     // MARK: - Recording
 
     func start() throws {
+        // Check microphone permission before attempting to record
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard micStatus == .authorized else {
+            log.error("Microphone permission not granted (status: \(micStatus.rawValue))")
+            throw RecordingError.microphoneNotAuthorized
+        }
+
         collectedBuffers.removeAll()
         currentLevels = Array(repeating: 0, count: Self.barCount)
 
@@ -60,7 +68,7 @@ final class AudioRecorder: @unchecked Sendable {
         engine.stop()
         converter = nil
 
-        log.info("Recording stopped, collected \(self.collectedBuffers.count) buffers")
+        log.notice("Recording stopped, collected \(self.collectedBuffers.count) buffers")
 
         // Concatenate all converted buffers into a single array
         bufferLock.lock()
@@ -79,7 +87,9 @@ final class AudioRecorder: @unchecked Sendable {
         samples.append(contentsOf: [Float](repeating: 0, count: 3200))
 
         let duration = Double(samples.count) / Self.targetSampleRate
-        log.info("Total audio: \(String(format: "%.1f", duration))s, \(samples.count) samples")
+        // Compute peak amplitude to detect silent/dead mic
+        let peak = samples.max() ?? 0
+        log.notice("Total audio: \(String(format: "%.1f", duration))s, \(samples.count) samples, peak: \(String(format: "%.4f", peak))")
 
         return samples
     }
@@ -163,11 +173,13 @@ final class AudioRecorder: @unchecked Sendable {
 // MARK: - Errors
 
 enum RecordingError: LocalizedError {
+    case microphoneNotAuthorized
     case formatCreationFailed
     case converterCreationFailed
 
     var errorDescription: String? {
         switch self {
+        case .microphoneNotAuthorized: "Microphone permission not granted. Open System Settings > Privacy & Security > Microphone."
         case .formatCreationFailed: "Failed to create target audio format"
         case .converterCreationFailed: "Failed to create audio converter"
         }

@@ -8,7 +8,7 @@ struct ParkeetApp: App {
         // Menu bar app — no main window. Settings opened from tray menu.
         Settings {
             SettingsView()
-                .environmentObject(appDelegate.appState)
+                .environment(appDelegate.appState)
         }
     }
 }

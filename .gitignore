@@ -8,3 +8,8 @@ __pycache__/
 *.code-workspace
 build/
 dist/
+
+# Swift / SPM
+ParkeetSwift/.build/
+ParkeetSwift/Parkeet.xcodeproj/
+sherpa-onnx/

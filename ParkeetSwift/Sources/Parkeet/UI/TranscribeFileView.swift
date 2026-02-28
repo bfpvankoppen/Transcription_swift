@@ -1,19 +1,20 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// File transcription view with drag-and-drop, progress, and results.
+/// File transcription view with drag-and-drop, progress with time estimation, and results.
 struct TranscribeFileView: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
 
     enum TranscribeState {
         case idle
-        case transcribing(progress: Double)
-        case complete(text: String, wordCount: Int)
+        case transcribing(progress: FileTranscriber.Progress, filename: String)
+        case complete(text: String, wordCount: Int, filename: String)
         case error(String)
     }
 
     @State private var state: TranscribeState = .idle
     @State private var isDropTargeted = false
+    @State private var fileTranscriber: FileTranscriber?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -21,11 +22,11 @@ struct TranscribeFileView: View {
             case .idle:
                 idleView
 
-            case .transcribing(let progress):
-                transcribingView(progress: progress)
+            case .transcribing(let progress, let filename):
+                transcribingView(progress: progress, filename: filename)
 
-            case .complete(let text, let wordCount):
-                completeView(text: text, wordCount: wordCount)
+            case .complete(let text, let wordCount, let filename):
+                completeView(text: text, wordCount: wordCount, filename: filename)
 
             case .error(let message):
                 errorView(message: message)
@@ -68,24 +69,70 @@ struct TranscribeFileView: View {
         )
     }
 
-    private func transcribingView(progress: Double) -> some View {
+    private func transcribingView(progress: FileTranscriber.Progress, filename: String) -> some View {
         VStack(spacing: 16) {
-            ProgressView(value: progress)
+            Image(systemName: "waveform")
+                .font(.system(size: 32))
+                .foregroundColor(.blue)
+                .symbolEffect(.pulse)
+
+            Text("Transcribing")
+                .font(.headline)
+
+            Text(filename)
+                .font(.callout)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            ProgressView(value: progress.fraction)
                 .progressViewStyle(.linear)
 
-            Text("Transcribing… \(Int(progress * 100))%")
-                .font(.headline)
+            Text("\(Int(progress.fraction * 100))%")
+                .font(.title2)
+                .fontWeight(.medium)
+                .monospacedDigit()
+
+            HStack(spacing: 16) {
+                Label(formatDuration(progress.elapsedSeconds), systemImage: "clock")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+
+                if progress.chunksCompleted > 0 {
+                    Label(
+                        "~\(formatDuration(progress.estimatedRemainingSeconds)) remaining",
+                        systemImage: "hourglass"
+                    )
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                }
+            }
+            .monospacedDigit()
+
+            Text("Chunk \(progress.chunksCompleted) of \(progress.totalChunks)")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            Button("Cancel") {
+                fileTranscriber?.cancel()
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
         }
     }
 
-    private func completeView(text: String, wordCount: Int) -> some View {
+    private func completeView(text: String, wordCount: Int, filename: String) -> some View {
         VStack(spacing: 12) {
             HStack {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(.green)
-                Text("\(wordCount) words transcribed")
+                Text("Transcription Complete")
                     .font(.headline)
             }
+
+            Text("\(filename) — \(wordCount) words")
+                .font(.callout)
+                .foregroundColor(.secondary)
 
             ScrollView {
                 Text(text)
@@ -102,7 +149,7 @@ struct TranscribeFileView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
 
                 Spacer()
 
@@ -148,6 +195,7 @@ struct TranscribeFileView: View {
             guard let url else { return }
             // Copy to temp location (the drop URL is ephemeral)
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: tempURL)
             try? FileManager.default.copyItem(at: url, to: tempURL)
             DispatchQueue.main.async {
                 self.transcribe(url: tempURL)
@@ -157,24 +205,63 @@ struct TranscribeFileView: View {
     }
 
     private func transcribe(url: URL) {
-        state = .transcribing(progress: 0)
+        let filename = url.lastPathComponent
+        let initialProgress = FileTranscriber.Progress(
+            chunksCompleted: 0,
+            totalChunks: 1,
+            elapsedSeconds: 0,
+            estimatedRemainingSeconds: 0,
+            fraction: 0
+        )
+        state = .transcribing(progress: initialProgress, filename: filename)
 
         Task {
-            let fileTranscriber = FileTranscriber(transcriber: appState.transcriber)
+            let ft = FileTranscriber(transcriber: appState.transcriber)
+            fileTranscriber = ft
+
             do {
-                let text = try await fileTranscriber.transcribe(
+                let text = try await ft.transcribe(
                     fileURL: url,
                     onProgress: { progress in
                         Task { @MainActor in
-                            state = .transcribing(progress: progress)
+                            state = .transcribing(progress: progress, filename: filename)
                         }
                     }
                 )
+
                 let wordCount = text.split(separator: " ").count
-                state = .complete(text: text, wordCount: wordCount)
+
+                // Save to history
+                appState.historyStore.add(entry: HistoryEntry(
+                    type: .file,
+                    text: text,
+                    wordCount: wordCount,
+                    sourceFilename: filename
+                ))
+
+                state = .complete(text: text, wordCount: wordCount, filename: filename)
             } catch {
                 state = .error(error.localizedDescription)
             }
+
+            fileTranscriber = nil
         }
+    }
+
+    // MARK: - Helpers
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let totalSeconds = Int(seconds)
+        if totalSeconds < 60 {
+            return "\(totalSeconds)s"
+        }
+        let minutes = totalSeconds / 60
+        let secs = totalSeconds % 60
+        if minutes < 60 {
+            return "\(minutes)m \(secs)s"
+        }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return "\(hours)h \(mins)m \(secs)s"
     }
 }

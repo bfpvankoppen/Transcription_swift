@@ -18,6 +18,7 @@ final class Config {
         static let soundEnabled = "soundEnabled"
         static let notificationEnabled = "notificationEnabled"
         static let voiceCommands = "voiceCommands"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
     // MARK: - Properties
@@ -64,6 +65,11 @@ final class Config {
         set {
             defaults.set(newValue, forKey: Keys.notificationEnabled)
         }
+    }
+
+    var hasCompletedOnboarding: Bool {
+        get { defaults.bool(forKey: Keys.hasCompletedOnboarding) }
+        set { defaults.set(newValue, forKey: Keys.hasCompletedOnboarding) }
     }
 
     var voiceCommands: [String: Bool] {
