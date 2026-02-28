@@ -1,0 +1,41 @@
+name: Parkeet
+options:
+  bundleIdPrefix: com.parkeet
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_OBJC_BRIDGING_HEADER: "Support/SherpaOnnx-Bridging-Header.h"
+    OTHER_LDFLAGS:
+      - "-lc++"
+      - "-lsherpa-onnx-c-api"
+      - "-lonnxruntime"
+    LIBRARY_SEARCH_PATHS:
+      - "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/lib"
+    HEADER_SEARCH_PATHS:
+      - "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/include"
+
+targets:
+  Parkeet:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    resources:
+      - path: Resources
+    settings:
+      base:
+        INFOPLIST_FILE: Support/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Support/Parkeet.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.parkeet.app
+        PRODUCT_NAME: Parkeet
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+          - "@executable_path/../Resources/lib"
+    entitlements:
+      path: Support/Parkeet.entitlements
