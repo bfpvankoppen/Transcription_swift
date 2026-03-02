@@ -94,6 +94,23 @@ final class AudioRecorder: @unchecked Sendable {
         return samples
     }
 
+    /// Extract and clear all accumulated 16kHz samples without stopping recording.
+    /// Used by meeting mode to pull audio chunks while recording continues.
+    func extractAccumulatedSamples() -> [Float] {
+        bufferLock.lock()
+        let buffers = collectedBuffers
+        collectedBuffers.removeAll()
+        bufferLock.unlock()
+
+        var samples: [Float] = []
+        for buf in buffers {
+            guard let channelData = buf.floatChannelData else { continue }
+            let count = Int(buf.frameLength)
+            samples.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: count))
+        }
+        return samples
+    }
+
     // MARK: - Buffer Processing
 
     private func processBuffer(_ buffer: AVAudioPCMBuffer) {

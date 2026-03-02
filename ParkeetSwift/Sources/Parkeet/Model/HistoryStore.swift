@@ -102,6 +102,7 @@ struct HistoryEntry: Codable, Identifiable {
     enum EntryType: String, Codable {
         case hotkey
         case file
+        case meeting
     }
 
     init(
