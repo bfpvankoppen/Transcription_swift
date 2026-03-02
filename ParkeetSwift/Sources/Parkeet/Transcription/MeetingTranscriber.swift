@@ -116,16 +116,22 @@ final class MeetingTranscriber {
         guard pendingSamples.count >= Self.minChunkSamples else { return }
         guard !isTranscribingChunk else { return }  // One at a time
 
-        // Find silence boundary
+        // Find silence boundary (returns 0 if no good cut point yet)
         let cutPoint = findSilenceBoundary(in: pendingSamples)
+        guard cutPoint > 0 else { return }
+
         let chunk = Array(pendingSamples.prefix(cutPoint))
         pendingSamples.removeFirst(cutPoint)
 
         transcribeChunk(chunk)
     }
 
-    /// Find the best cut point: scan for lowest energy 100ms window between 3s and 10s.
-    /// Returns sample index to cut at.
+    /// Find the best cut point: scan for a genuine silence gap between 3s and 10s.
+    ///
+    /// Only cuts at a point where energy drops below an absolute threshold (a real
+    /// pause between words/sentences). If no real pause exists, waits until the 10s
+    /// ceiling and cuts there — a clean hard cut is better than splitting mid-word
+    /// at a barely-quieter syllable boundary.
     private func findSilenceBoundary(in samples: [Float]) -> Int {
         let searchStart = Self.minChunkSamples
         let searchEnd = min(samples.count, Self.maxChunkSamples)
@@ -136,10 +142,12 @@ final class MeetingTranscriber {
         }
 
         let windowSize = Self.silenceWindowSamples
-        var lowestEnergy: Float = .greatestFiniteMagnitude
-        var bestCutPoint = searchStart
 
-        // Slide a 100ms window from 3s to 10s, find the quietest spot
+        // Absolute energy threshold: RMS below this means genuine silence/pause.
+        // -40dB relative to full scale ≈ 0.01 RMS. Squared for comparison: 0.0001
+        let silenceThreshold: Float = 0.0001
+
+        // First pass: find the first window below the silence threshold (a real pause)
         var i = searchStart
         while i + windowSize <= searchEnd {
             var sum: Float = 0
@@ -147,16 +155,25 @@ final class MeetingTranscriber {
                 let s = samples[j]
                 sum += s * s
             }
-            let rms = sum / Float(windowSize)
+            let energy = sum / Float(windowSize)
 
-            if rms < lowestEnergy {
-                lowestEnergy = rms
-                bestCutPoint = i + windowSize / 2  // Cut at center of quiet window
+            if energy < silenceThreshold {
+                let cutPoint = i + windowSize / 2
+                log.debug("Silence boundary at \(String(format: "%.1f", Double(cutPoint) / Self.sampleRate))s (energy: \(energy))")
+                return cutPoint
             }
-            i += windowSize / 2  // Step by 50ms for decent resolution
+            i += windowSize / 2  // Step by 50ms
         }
 
-        return bestCutPoint
+        // No genuine pause found — only cut at ceiling if we have enough audio,
+        // otherwise wait for more audio to accumulate
+        if samples.count >= Self.maxChunkSamples {
+            log.debug("No silence found, hard cut at 10s ceiling")
+            return Self.maxChunkSamples
+        }
+
+        // Not at ceiling yet — don't cut, let audio accumulate
+        return 0
     }
 
     // MARK: - Transcription
@@ -194,7 +211,9 @@ final class MeetingTranscriber {
     // MARK: - Export
 
     var plainText: String {
-        segments.map(\.text).joined(separator: " ")
+        segments.map { segment in
+            "[\(formatTimestamp(segment.timestamp))] \(segment.text)"
+        }.joined(separator: "\n")
     }
 
     func markdownText(date: Date = Date()) -> String {

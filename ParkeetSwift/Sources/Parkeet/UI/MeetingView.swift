@@ -66,7 +66,8 @@ struct MeetingView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if let mt = meetingTranscriber {
-                        ForEach(mt.segments) { segment in
+                        // Newest segments at top for a live-feed feel
+                        ForEach(mt.segments.reversed()) { segment in
                             segmentRow(segment)
                                 .id(segment.id)
                         }
@@ -87,10 +88,10 @@ struct MeetingView: View {
                 .padding(.vertical, 12)
             }
             .onChange(of: meetingTranscriber?.segments.count) {
-                // Auto-scroll to latest segment
+                // Auto-scroll to top where newest segment appears
                 if let last = meetingTranscriber?.segments.last {
                     withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                        proxy.scrollTo(last.id, anchor: .top)
                     }
                 }
             }
