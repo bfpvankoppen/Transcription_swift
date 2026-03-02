@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
     private var welcomeWindow: NSWindow?
+    private var meetingWindow: NSWindow?
     private let log = Logger(subsystem: "com.parkeet.app", category: "AppDelegate")
 
     // MARK: - App Lifecycle
@@ -64,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "o"
         ))
 
+        menu.addItem(NSMenuItem(
+            title: "Start Meeting…",
+            action: #selector(startMeeting),
+            keyEquivalent: "m"
+        ))
+
         menu.addItem(.separator())
 
         menu.addItem(NSMenuItem(
@@ -88,6 +95,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openFileTranscription() {
         openSettingsWindow(page: .transcribeFile)
+    }
+
+    @objc private func startMeeting() {
+        log.info("Opening meeting window")
+        meetingWindow?.close()
+
+        let meetingView = MeetingView()
+            .environment(appState)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Parkeet — Meeting"
+        window.contentView = NSHostingView(rootView: meetingView)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 400, height: 300)
+        self.meetingWindow = window
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 
     private func openSettingsWindow(page: SettingsView.Page) {
