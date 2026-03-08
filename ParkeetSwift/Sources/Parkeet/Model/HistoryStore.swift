@@ -12,14 +12,30 @@ final class HistoryStore {
 
     private var retentionHours: Double = 48.0
     private var storageURL: URL {
-        let configDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/parkeet")
-        try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        return configDir.appendingPathComponent("history.json")
+        Self.historyFileURL()
     }
 
     init() {
+        Self.migrateIfNeeded(to: storageURL)
         load()
+    }
+
+    /// Sandbox-compatible history file location in Application Support.
+    private static func historyFileURL() -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let parkeetDir = appSupport.appendingPathComponent("Parkeet")
+        try? FileManager.default.createDirectory(at: parkeetDir, withIntermediateDirectories: true)
+        return parkeetDir.appendingPathComponent("history.json")
+    }
+
+    /// Migrate history from the old ~/.config/parkeet/ location (pre-sandbox).
+    private static func migrateIfNeeded(to newURL: URL) {
+        let oldPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/parkeet/history.json")
+        if FileManager.default.fileExists(atPath: oldPath.path),
+           !FileManager.default.fileExists(atPath: newURL.path) {
+            try? FileManager.default.copyItem(at: oldPath, to: newURL)
+        }
     }
 
     // MARK: - CRUD

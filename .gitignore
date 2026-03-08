@@ -1,15 +1,15 @@
-.venv/
-models/
-__pycache__/
-*.pyc
-.context/
 .DS_Store
-.wow/
+.vscode/
 *.code-workspace
-build/
-dist/
+.context/
+.wow/
 
 # Swift / SPM
 ParkeetSwift/.build/
 ParkeetSwift/Parkeet.xcodeproj/
+
+# sherpa-onnx (cloned by build script, only built libs needed)
 sherpa-onnx/
+
+# Models (large, downloaded separately)
+ParkeetSwift/Resources/models/

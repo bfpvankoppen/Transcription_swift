@@ -4,57 +4,84 @@ See `__pycache__/.context/identity.md` for Björn's personal context, background
 
 # Parkeet
 
-macOS speech-to-text app using NVIDIA Parakeet TDT 0.6B v3 (INT8 ONNX via sherpa-onnx).
+Native Swift macOS speech-to-text app using NVIDIA Parakeet TDT 0.6B v3 (INT8 ONNX via sherpa-onnx).
 Press Cmd+Option to record, press again to stop, transcription is pasted into the focused text field.
 
 ## Architecture
 
-- **Python 3.11** via pyenv, venv at `.venv/`
-- **PyQt6** for overlay UI, system tray, event loop
-- **sherpa-onnx** for offline ASR inference (INT8 quantized, 642MB model)
-- **sounddevice** for 16kHz mono audio capture
-- **pynput** for global Cmd+Option hotkey detection
-- **pyobjc** (AppKit/Quartz) for clipboard paste simulation, focus management, NSWindow control
-- **PyInstaller** for standalone .app packaging
+- **Swift 5.9** / **SwiftUI** — native macOS app, menu-bar accessory (no Dock icon)
+- **sherpa-onnx** C API — offline ASR inference (INT8 quantized, 642MB model)
+- **AVAudioEngine** — 16kHz mono audio capture with real-time level metering
+- **NSEvent** global monitors — Cmd+Option hotkey detection (no pynput)
+- **AppKit** — NSStatusItem menu bar, NSPanel overlay, CGEvent paste simulation
+- **SPM + XcodeGen** — build system (Package.swift + project.yml)
 
 ## Project Structure
 
 ```
-run.py              # Entry point
-src/
-  app.py            # Main controller, state machine, system tray, focus restore
-  overlay.py        # Floating recording overlay with waveform animation
-  hotkey.py         # Global Cmd+Option hotkey listener (pynput + Qt bridge)
-  recorder.py       # Audio recorder with real-time level metering
-  transcriber.py    # Parakeet model wrapper (sherpa-onnx)
-  paster.py         # Clipboard + Cmd+V paste simulation (pyobjc)
-models/             # ONNX model files (gitignored)
-parkeet.spec        # PyInstaller spec for building Parkeet.app
-build.sh            # Build script: pyinstaller + codesign + dmg
-assets/
-  Parkeet.icns      # App icon
-  icon.png          # Source icon (1024x1024)
-  generate_icon.py  # Script to regenerate icon
-dist/               # Build output (gitignored)
-  Parkeet.app       # Standalone app bundle (~700MB)
-  Parkeet.dmg       # Distributable disk image (~534MB)
+ParkeetSwift/
+├── Package.swift                    # SPM manifest (macOS 14.0+)
+├── project.yml                      # XcodeGen config
+├── run.sh                           # Build & package script
+├── Sources/
+│   ├── CSherpaOnnx/                 # C API wrapper module
+│   │   ├── include/c-api.h          # sherpa-onnx C header
+│   │   ├── include/module.modulemap
+│   │   └── shim.c
+│   └── Parkeet/
+│       ├── App/
+│       │   ├── ParkeetApp.swift       # @main SwiftUI entry point
+│       │   ├── AppDelegate.swift      # Menu bar, window management
+│       │   ├── AppState.swift         # Central state machine (@Observable)
+│       │   ├── PermissionChecker.swift
+│       │   └── SoundPlayer.swift
+│       ├── Audio/
+│       │   └── AudioRecorder.swift    # AVAudioEngine, 28-bar waveform
+│       ├── Transcription/
+│       │   ├── Transcriber.swift      # Parakeet model wrapper
+│       │   ├── MeetingTranscriber.swift # Live meeting mode
+│       │   └── FileTranscriber.swift  # Batch file processing
+│       ├── Bridge/
+│       │   └── SherpaOnnx.swift       # Swift bindings for C API
+│       ├── Hotkey/
+│       │   └── HotkeyListener.swift   # NSEvent global monitors
+│       ├── Overlay/
+│       │   └── OverlayPanel.swift     # Recording UI (all Spaces)
+│       ├── Paste/
+│       │   └── PasteService.swift     # Clipboard + Cmd+V simulation
+│       ├── Model/
+│       │   ├── Config.swift           # UserDefaults persistence
+│       │   ├── HistoryStore.swift     # Transcription history (JSON)
+│       │   └── VoiceCommands.swift    # Text replacements
+│       └── UI/
+│           ├── SettingsView.swift     # Sidebar navigation settings
+│           ├── MeetingView.swift      # Live transcription window
+│           ├── TranscribeFileView.swift
+│           ├── HistoryView.swift
+│           ├── VoiceCommandsView.swift
+│           └── WelcomeView.swift      # Onboarding
+├── Support/
+│   ├── Info.plist
+│   ├── Parkeet.entitlements
+│   └── SherpaOnnx-Bridging-Header.h
+├── Scripts/
+│   ├── build-sherpa-onnx.sh         # Compile sherpa-onnx C libraries
+│   └── download-model.sh            # Download Parakeet model
+└── Resources/
+    └── models/                      # ONNX model files (gitignored)
 ```
 
-## Running
+## Building & Running
 
-**Development:**
 ```bash
-source .venv/bin/activate
-python run.py
-```
+# First time: build sherpa-onnx and download model
+cd ParkeetSwift
+bash Scripts/build-sherpa-onnx.sh
+bash Scripts/download-model.sh
 
-**Standalone app:**
-```bash
-bash build.sh          # Build Parkeet.app + Parkeet.dmg
-open dist/Parkeet.app  # Launch
+# Build & run
+bash run.sh
 ```
-
-**Desktop shortcut:** Finder alias on Desktop points to `dist/Parkeet.app`
 
 ## Workflow Rules
 
@@ -104,7 +131,6 @@ Follow these for EVERY prompt and task:
 - Use structured log levels consistently: `DEBUG` for internals, `INFO` for operations, `WARNING` for recoverable issues, `ERROR` for failures
 - Include enough context in each log message to diagnose issues without a debugger
 - When building or modifying any feature, always include appropriate logging as part of the implementation
-- See `.wow/wow.md` section 7 for the full policy
 
 ## Core Principles
 
@@ -116,42 +142,24 @@ Follow these for EVERY prompt and task:
 
 - Model: `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` (25 languages, auto-detect)
 - Must use `model_type="nemo_transducer"` with sherpa-onnx (not default "transducer")
-- Overlay uses NSWindow collection behaviors via pyobjc to appear on all macOS Spaces
-- Qt `Tool` window type creates NSPanel which sets `MoveToActiveSpace` — must clear this bit and set `CanJoinAllSpaces` AFTER `show()`
-- Hotkey uses pynput listener thread bridged to Qt main thread via `HotkeyBridge(QObject)` with `pyqtSignal`
-- **Never stop/restart pynput listener at runtime on macOS 26+** — `TSMGetInputSourceProperty` crashes with SIGTRAP when called from a new background thread. Use `update_modifiers()` to hot-swap config instead.
+- Overlay uses NSPanel with collection behaviors to appear on all macOS Spaces
+- Hotkey uses NSEvent global monitors (addGlobalMonitorForEvents) — pure AppKit, no third-party
 - Paste uses NSPasteboard + CGEvent Cmd+V simulation; requires Accessibility permission
 - macOS permissions needed: Microphone, Accessibility, Input Monitoring
+- **Accessory activation policy required** — Regular policy pins ALL windows to one Space on macOS 26
 
 ## Lessons Learned (macOS App Development)
 
-### Focus Management
-- **Qt signal thread-crossing steals focus**: When a `pyqtSignal` is emitted from a background thread (pynput) and delivered to the Qt main thread, macOS activates the app as a side effect. By the time the connected slot runs, our app is already frontmost. Calling `frontmostApplication()` inside the slot returns our own app, not the user's.
-- **Fix: capture frontmost app in the pynput thread BEFORE emitting the signal**: `_pre_capture_and_emit()` calls `NSWorkspace.frontmostApplication()` while the user's app is still active, stores the reference, then emits the Qt signal. After the overlay appears, `_refocus_target()` re-activates the saved app via `activateWithOptions_(NSApplicationActivateIgnoringOtherApps)` with a 150ms QTimer delay.
-- **macOS 26: `NSApplicationActivationPolicyRegular` breaks all-Spaces overlay**: Under Regular policy, NO window type (Qt Window, Qt Tool, native NSWindow) follows to other Spaces — regardless of `CanJoinAllSpaces` or any behavior flags. The activation policy overrides all per-window Space behavior at the OS level. **Must use Accessory policy for overlays that need to appear on all Spaces.** Dock icon and all-Spaces overlay are mutually exclusive on macOS 26.
-
-### PyInstaller Packaging
-- **`sys._MEIPASS`**: PyInstaller extracts bundled files to a temp directory. Use `getattr(sys, '_MEIPASS', None)` to detect bundled mode and find resources. Always provide a fallback to the dev path (`os.path.dirname(__file__)`).
-- **sherpa-onnx native libs**: Must explicitly add `sherpa_onnx/lib/*.so` and `*.dylib` as binaries in the spec file. PyInstaller doesn't auto-detect them.
-- **sounddevice/PortAudio**: Bundle `_sounddevice_data/portaudio-binaries/libportaudio.dylib` as data.
-- **Hidden imports needed**: `sherpa_onnx`, `pynput.keyboard._darwin`, `sounddevice`, `soundfile`, `AppKit`, `Quartz`, `objc`.
-- **Ad-hoc code signing**: `codesign --force --deep --sign -` is required for Gatekeeper to allow the app to run.
+### Overlay Window (All macOS Spaces)
+- **Requires Accessory activation policy** — Regular policy pins ALL windows to one Space on macOS 26.
+- Set behavior from scratch: `CanJoinAllSpaces | Stationary | IgnoresCycle | FullScreenAuxiliary`.
+- After each `show()`, must re-apply space behaviors — AppKit may reset during window creation.
+- Use `setHidesOnDeactivate_(false)` to prevent NSPanel from hiding when app loses focus.
 
 ### macOS .app Bundles
-- **Shell script as CFBundleExecutable doesn't work well**: The Python process spawned by `exec` doesn't properly inherit the bundle's identity. PyInstaller creating a real Mach-O binary solves this.
 - **Icon cache is aggressive**: After changing `.icns`, must run `lsregister -f` on the .app AND `killall Finder` to refresh.
-- **Finder aliases vs symlinks**: `ln -s` creates Unix symlinks that show generic icons. Use `osascript` with Finder's `make alias file` to create proper macOS aliases that inherit the app icon.
 - **DMG creation**: `hdiutil create -volname "Name" -srcfolder "path/to/App.app" -ov -format UDZO output.dmg`
-
-### Overlay Window (All macOS Spaces)
-- **Requires Accessory activation policy** — Regular policy pins ALL windows to one Space on macOS 26 (see Focus Management above).
-- Set behavior from scratch (don't inherit Qt defaults): `CanJoinAllSpaces | Stationary | IgnoresCycle | FullScreenAuxiliary`. Do NOT retain `FullScreenPrimary` (0x80) that Qt sets by default.
-- After each `show()`, must re-apply `_apply_all_spaces_behavior()` — Qt may reset behavior during window creation.
-- Use `setHidesOnDeactivate_(False)` to prevent NSPanel from hiding when app loses focus.
-- Do NOT try to avoid `show()`/`hide()` by keeping the window always visible at opacity 0 — this breaks overlay following across macOS Spaces.
-
-### Blocking Dialogs in Accessory Apps
-- `QMessageBox` in an accessory/background app creates windows that are invisible behind other apps. The user sees nothing and the app appears hung. Use non-blocking tray notifications (`QSystemTrayIcon.showMessage()`) instead of modal dialogs for status messages.
+- **Ad-hoc code signing**: `codesign --force --deep --sign -` is required for Gatekeeper.
 
 ## Reference: notchprompt Patterns
 
@@ -159,5 +167,5 @@ Source: https://github.com/saif0200/notchprompt (native Swift macOS overlay app)
 Full analysis: `tasks/notchprompt-insights.md`
 
 Key patterns applicable to Parkeet: overlay window hardening (stationary + ignoresCycle behaviors),
-privacy mode (NSWindow sharingType), replacing pynput with NSEvent global monitors to eliminate
-focus-stealing at the source, dual-rate animation timers, debounced auto-save, and multi-display support.
+privacy mode (NSWindow sharingType), NSEvent global monitors, dual-rate animation timers,
+debounced auto-save, and multi-display support.

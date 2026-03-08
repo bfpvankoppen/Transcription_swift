@@ -334,10 +334,7 @@ struct WelcomeView: View {
     }
 
     private func requestAccessibility() {
-        if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-        }
+        PermissionChecker.openAccessibilitySettings()
     }
 
     // MARK: - Polling

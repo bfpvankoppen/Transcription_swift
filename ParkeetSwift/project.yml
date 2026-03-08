@@ -14,7 +14,18 @@ settings:
     OTHER_LDFLAGS:
       - "-lc++"
       - "-lsherpa-onnx-c-api"
+      - "-lsherpa-onnx-core"
       - "-lonnxruntime"
+      - "-lkaldi-decoder-core"
+      - "-lkaldi-native-fbank-core"
+      - "-lsherpa-onnx-kaldifst-core"
+      - "-lsherpa-onnx-fst"
+      - "-lsherpa-onnx-fstfar"
+      - "-lssentencepiece_core"
+      - "-lespeak-ng"
+      - "-lpiper_phonemize"
+      - "-lucd"
+      - "-lkissfft-float"
     LIBRARY_SEARCH_PATHS:
       - "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/lib"
     HEADER_SEARCH_PATHS:
@@ -28,14 +39,21 @@ targets:
       - path: Sources
     resources:
       - path: Resources
+      - path: Support/PrivacyInfo.xcprivacy
     settings:
       base:
         INFOPLIST_FILE: Support/Info.plist
         CODE_SIGN_ENTITLEMENTS: Support/Parkeet.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.parkeet.app
         PRODUCT_NAME: Parkeet
-        LD_RUNPATH_SEARCH_PATHS:
-          - "@executable_path/../Frameworks"
-          - "@executable_path/../Resources/lib"
+        MARKETING_VERSION: "2.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
     entitlements:
       path: Support/Parkeet.entitlements

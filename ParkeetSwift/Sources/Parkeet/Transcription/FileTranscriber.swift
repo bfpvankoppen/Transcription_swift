@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import os
 
 /// Transcribes audio files with chunking and progress reporting.

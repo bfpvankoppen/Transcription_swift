@@ -85,13 +85,16 @@ final class Transcriber: @unchecked Sendable {
 
     /// Find the model directory in the app bundle or project resources.
     private static func findModelDirectory() throws -> URL {
-        // 1. Check app bundle Resources
+        let log = Logger(subsystem: "com.parkeet.app", category: "Transcriber")
+
+        // 1. Check app bundle Resources (production path)
         if let bundlePath = Bundle.main.resourceURL?.appendingPathComponent("models/\(modelDirName)"),
            FileManager.default.fileExists(atPath: bundlePath.path) {
+            log.info("Model found in app bundle: \(bundlePath.path)")
             return bundlePath
         }
 
-        // 2. Check project Resources directory (development)
+        // 2. Development fallback (won't work in sandbox, that's OK)
         let devPath = URL(fileURLWithPath: #file)
             .deletingLastPathComponent()  // Transcription/
             .deletingLastPathComponent()  // Parkeet/
@@ -99,16 +102,11 @@ final class Transcriber: @unchecked Sendable {
             .deletingLastPathComponent()  // ParkeetSwift/
             .appendingPathComponent("Resources/models/\(modelDirName)")
         if FileManager.default.fileExists(atPath: devPath.path) {
+            log.info("Model found at dev path: \(devPath.path)")
             return devPath
         }
 
-        // 3. Check ~/.config/parkeet/models/
-        let configPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/parkeet/models/\(modelDirName)")
-        if FileManager.default.fileExists(atPath: configPath.path) {
-            return configPath
-        }
-
+        log.error("Model not found in bundle or dev path")
         throw TranscriberError.modelNotFound
     }
 }

@@ -15,11 +15,9 @@ else
     SWIFT_FLAGS=""
 fi
 
-SHERPA_LIB="$SCRIPT_DIR/../sherpa-onnx/build-swift-macos/install/lib"
 BUILD_APP="$SCRIPT_DIR/.build/Parkeet.app"
 CONTENTS="$BUILD_APP/Contents"
 MACOS="$CONTENTS/MacOS"
-FRAMEWORKS="$CONTENTS/Frameworks"
 
 # Install location — ~/Applications/ so macOS recognizes it in permission dialogs
 INSTALL_DIR="$HOME/Applications"
@@ -30,18 +28,17 @@ swift build $SWIFT_FLAGS
 
 echo "=== Creating .app bundle ==="
 rm -rf "$BUILD_APP"
-mkdir -p "$MACOS" "$FRAMEWORKS" "$CONTENTS/Resources"
+mkdir -p "$MACOS" "$CONTENTS/Resources"
 
-# Copy executable
+# Copy executable (statically linked — no Frameworks/ needed)
 cp ".build/$CONFIG/Parkeet" "$MACOS/Parkeet"
 
-# Copy dylibs into Frameworks (preserve versioned names + symlinks)
-cp "$SHERPA_LIB/libsherpa-onnx-c-api.dylib" "$FRAMEWORKS/"
-cp "$SHERPA_LIB/libonnxruntime.1.23.2.dylib" "$FRAMEWORKS/"
-ln -sf libonnxruntime.1.23.2.dylib "$FRAMEWORKS/libonnxruntime.dylib"
-
-# Fix dylib rpaths so the executable finds them in Frameworks/
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS/Parkeet" 2>/dev/null || true
+# Copy model into bundle so the app doesn't depend on the dev source path
+MODEL_SRC="$SCRIPT_DIR/Resources/models"
+if [ -d "$MODEL_SRC" ]; then
+    echo "=== Bundling model ==="
+    cp -R "$MODEL_SRC" "$CONTENTS/Resources/models"
+fi
 
 # Copy Info.plist
 cp "$SCRIPT_DIR/Support/Info.plist" "$CONTENTS/Info.plist"
@@ -108,6 +105,9 @@ fi
 
 # Unlock the dedicated keychain (it has an empty password)
 security unlock-keychain -p "" "$KEYCHAIN_PATH" 2>/dev/null || true
+
+# Strip resource forks that break code signing
+xattr -cr "$BUILD_APP"
 
 echo "=== Signing ==="
 codesign --force --deep --sign "$CERT_NAME" \

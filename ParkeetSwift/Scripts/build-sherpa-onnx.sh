@@ -31,7 +31,8 @@ if [ ! -d "build-swift-macos/install" ]; then
     cmake \
         -DCMAKE_INSTALL_PREFIX=./install \
         -DCMAKE_BUILD_TYPE=Release \
-        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+        -DBUILD_SHARED_LIBS=OFF \
         -DSHERPA_ONNX_ENABLE_BINARY=OFF \
         -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
         -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF \

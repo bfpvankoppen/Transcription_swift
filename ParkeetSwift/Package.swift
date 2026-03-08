@@ -28,13 +28,21 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags([
                     "-L\(sherpaLibPath)",
-                    "-Xlinker", "-rpath",
-                    "-Xlinker", "@executable_path/../Frameworks",
-                    "-Xlinker", "-rpath",
-                    "-Xlinker", "\(sherpaLibPath)",
                 ]),
                 .linkedLibrary("sherpa-onnx-c-api"),
+                .linkedLibrary("sherpa-onnx-core"),
                 .linkedLibrary("onnxruntime"),
+                .linkedLibrary("kaldi-decoder-core"),
+                .linkedLibrary("kaldi-native-fbank-core"),
+                .linkedLibrary("sherpa-onnx-kaldifst-core"),
+                .linkedLibrary("sherpa-onnx-fst"),
+                .linkedLibrary("sherpa-onnx-fstfar"),
+                .linkedLibrary("ssentencepiece_core"),
+                .linkedLibrary("espeak-ng"),
+                .linkedLibrary("piper_phonemize"),
+                .linkedLibrary("ucd"),
+                .linkedLibrary("kissfft-float"),
+                .linkedLibrary("c++"),
             ]
         ),
     ]

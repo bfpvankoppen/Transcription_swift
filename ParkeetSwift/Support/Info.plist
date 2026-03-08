@@ -26,9 +26,13 @@
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Parkeet needs microphone access to record audio for speech-to-text transcription.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2026 Parkeet. All rights reserved.</string>
 </dict>
 </plist>
