@@ -1,5 +1,7 @@
 import SwiftUI
 import AVFoundation
+import UniformTypeIdentifiers
+import os
 
 /// First-launch onboarding window that guides users through permissions setup.
 ///
@@ -14,6 +16,9 @@ struct WelcomeView: View {
     @State private var micGranted = false
     @State private var accessibilityGranted = false
     @State private var pollTimer: Timer?
+    @State private var desktopShortcutCreated = false
+
+    private let log = Logger(subsystem: "com.parkeet.app", category: "WelcomeView")
 
     var onComplete: () -> Void
 
@@ -24,7 +29,8 @@ struct WelcomeView: View {
                 switch step {
                 case 0: welcomeStep
                 case 1: permissionsStep
-                default: readyStep
+                case 2: readyStep
+                default: desktopShortcutStep
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -35,7 +41,7 @@ struct WelcomeView: View {
             HStack {
                 // Step indicator
                 HStack(spacing: 6) {
-                    ForEach(0..<3) { i in
+                    ForEach(0..<4) { i in
                         Circle()
                             .fill(i == step ? Color.accentColor : Color.secondary.opacity(0.3))
                             .frame(width: 7, height: 7)
@@ -50,15 +56,22 @@ struct WelcomeView: View {
                     }
                 }
 
-                Button(step == 2 ? "Get Started" : "Continue") {
-                    if step == 2 {
+                if step == 3 {
+                    Button("Skip") {
                         onComplete()
-                    } else {
+                    }
+
+                    Button("Get Started") {
+                        onComplete()
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Continue") {
                         withAnimation(.easeInOut(duration: 0.2)) { step += 1 }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(step == 1 && !allPermissionsGranted)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(step == 1 && !allPermissionsGranted)
             }
             .padding()
         }
@@ -222,8 +235,10 @@ struct WelcomeView: View {
             if !accessibilityGranted {
                 VStack(alignment: .leading, spacing: 6) {
                     instructionRow(number: "1", text: "Click the button below — **System Settings** will open")
-                    instructionRow(number: "2", text: "Find **Parkeet** in the list")
-                    instructionRow(number: "3", text: "**Toggle the switch on**, then come back here")
+                    instructionRow(number: "2", text: "If Parkeet is in the list, **toggle the switch on**")
+                    instructionRow(number: "3", text: "If not, click the **+** button at the bottom")
+                    instructionRow(number: "4", text: "Go to **Applications**, search for **Parkeet**, and select it")
+                    instructionRow(number: "5", text: "Come back here — it will update automatically")
                 }
                 .padding(.leading, 4)
 
@@ -316,6 +331,93 @@ struct WelcomeView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
             )
+    }
+
+    // MARK: - Step 4: Desktop Shortcut
+
+    private var desktopShortcutStep: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            if desktopShortcutCreated {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.green)
+                    .transition(.scale.combined(with: .opacity))
+
+                Text("Shortcut Added!")
+                    .font(.system(size: 24, weight: .semibold))
+
+                Text("Parkeet is now on your Desktop.\nClick **Get Started** to begin.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.tint)
+
+                Text("Add to Desktop?")
+                    .font(.system(size: 24, weight: .semibold))
+
+                Text("Create a shortcut on your Desktop so you\ncan easily find and launch Parkeet.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button(action: createDesktopShortcut) {
+                    Label("Add to Desktop", systemImage: "plus.square")
+                        .frame(width: 200)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.top, 8)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 40)
+        .animation(.easeInOut(duration: 0.4), value: desktopShortcutCreated)
+    }
+
+    private func createDesktopShortcut() {
+        let appURL = Bundle.main.bundleURL
+
+        // Use NSSavePanel so the sandbox grants write access to the chosen location
+        let panel = NSSavePanel()
+        panel.title = "Save Parkeet Shortcut"
+        panel.nameFieldStringValue = "Parkeet"
+        panel.allowedContentTypes = [.aliasFile]
+        panel.canCreateDirectories = false
+
+        // Default to Desktop
+        if let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first {
+            panel.directoryURL = desktop
+        }
+
+        panel.begin { response in
+            guard response == .OK, let saveURL = panel.url else {
+                log.info("User cancelled desktop shortcut save panel")
+                return
+            }
+
+            do {
+                // Remove existing file at the chosen location
+                try? FileManager.default.removeItem(at: saveURL)
+
+                // Create a Finder alias at the user-chosen location
+                let bookmarkData = try appURL.bookmarkData(
+                    options: .suitableForBookmarkFile,
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+                try URL.writeBookmarkData(bookmarkData, to: saveURL)
+                desktopShortcutCreated = true
+                log.info("Desktop shortcut created at \(saveURL.path)")
+            } catch {
+                log.error("Failed to create desktop shortcut: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Permission Actions

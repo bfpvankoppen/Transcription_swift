@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build Parkeet with SPM and create a runnable .app bundle.
-# Usage: bash run.sh [--release]
+# Usage: bash run.sh [--release] [--dmg]
 
 set -euo pipefail
 
@@ -8,12 +8,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 CONFIG="debug"
-if [[ "${1:-}" == "--release" ]]; then
-    CONFIG="release"
-    SWIFT_FLAGS="-c release"
-else
-    SWIFT_FLAGS=""
-fi
+MAKE_DMG=false
+SWIFT_FLAGS=""
+for arg in "$@"; do
+    case "$arg" in
+        --release) CONFIG="release"; SWIFT_FLAGS="-c release" ;;
+        --dmg) MAKE_DMG=true ;;
+    esac
+done
 
 BUILD_APP="$SCRIPT_DIR/.build/Parkeet.app"
 CONTENTS="$BUILD_APP/Contents"
@@ -42,6 +44,12 @@ fi
 
 # Copy Info.plist
 cp "$SCRIPT_DIR/Support/Info.plist" "$CONTENTS/Info.plist"
+
+# Copy app icon
+ICON_SRC="$SCRIPT_DIR/Resources/AppIcon.icns"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$CONTENTS/Resources/AppIcon.icns"
+fi
 
 # Copy entitlements (used during signing)
 ENTITLEMENTS="$SCRIPT_DIR/Support/Parkeet.entitlements"
@@ -126,6 +134,39 @@ cp -R "$BUILD_APP" "$INSTALL_APP"
 echo ""
 echo "=== Parkeet.app ready ==="
 echo "Location: $INSTALL_APP"
-echo ""
-echo "Launching..."
-open "$INSTALL_APP"
+
+# ---------- DMG Creation ----------
+if $MAKE_DMG; then
+    DMG_PATH="$SCRIPT_DIR/.build/Parkeet.dmg"
+    DMG_STAGING="$SCRIPT_DIR/.build/dmg-staging"
+
+    echo ""
+    echo "=== Creating DMG ==="
+    rm -rf "$DMG_STAGING" "$DMG_PATH"
+    mkdir -p "$DMG_STAGING"
+
+    # Copy signed app into staging
+    cp -R "$INSTALL_APP" "$DMG_STAGING/Parkeet.app"
+
+    # Add Applications symlink for drag-to-install
+    ln -s /Applications "$DMG_STAGING/Applications"
+
+    # Create compressed DMG
+    hdiutil create \
+        -volname "Parkeet" \
+        -srcfolder "$DMG_STAGING" \
+        -ov -format UDZO \
+        "$DMG_PATH"
+
+    rm -rf "$DMG_STAGING"
+
+    DMG_SIZE=$(du -h "$DMG_PATH" | cut -f1)
+    echo ""
+    echo "=== DMG ready ==="
+    echo "Location: $DMG_PATH ($DMG_SIZE)"
+    echo "Share this file — the recipient drags Parkeet.app to Applications."
+else
+    echo ""
+    echo "Launching..."
+    open "$INSTALL_APP"
+fi
