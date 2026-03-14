@@ -1,5 +1,4 @@
 import Foundation
-import CSherpaOnnx
 
 // MARK: - Offline Transducer Model Config
 

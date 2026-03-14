@@ -423,14 +423,25 @@ struct WelcomeView: View {
     // MARK: - Permission Actions
 
     private func requestMicrophone() {
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        if status == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                DispatchQueue.main.async { micGranted = granted }
+        // Always attempt to request — macOS will show the system dialog if possible.
+        // If already denied, the completion returns false and we open System Settings.
+        if #available(macOS 14.0, *) {
+            AVAudioApplication.requestRecordPermission { granted in
+                DispatchQueue.main.async {
+                    micGranted = granted
+                    if !granted {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                    }
+                }
             }
-        } else if status == .denied || status == .restricted {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                NSWorkspace.shared.open(url)
+        } else {
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                DispatchQueue.main.async {
+                    micGranted = granted
+                    if !granted {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                    }
+                }
             }
         }
     }
@@ -454,7 +465,11 @@ struct WelcomeView: View {
     }
 
     private func checkPermissions() {
-        micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        if #available(macOS 14.0, *) {
+            micGranted = AVAudioApplication.shared.recordPermission == .granted
+        } else {
+            micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        }
         accessibilityGranted = AXIsProcessTrusted()
     }
 }

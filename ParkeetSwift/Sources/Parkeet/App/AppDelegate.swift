@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let window = aboutWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -124,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.aboutWindow = window
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func openSettings() {
@@ -140,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let window = historyWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.historyWindow = window
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func startMeeting() {
@@ -185,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.meetingWindow = window
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func openSettingsWindow(page: SettingsView.Page) {
@@ -197,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .environment(appState)
             window.contentView = NSHostingView(rootView: settingsView)
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -217,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.settingsWindow = window
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Welcome Window
@@ -245,7 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.welcomeWindow = window
 
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func quitApp() {
