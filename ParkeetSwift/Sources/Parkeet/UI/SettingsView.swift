@@ -7,7 +7,6 @@ struct SettingsView: View {
     enum Page: String, CaseIterable, Identifiable {
         case hotkeys = "Hotkeys"
         case transcribeFile = "Transcribe File"
-        case history = "History"
         case voiceCommands = "Voice Commands"
         case about = "About"
         case attribution = "Attribution"
@@ -18,7 +17,6 @@ struct SettingsView: View {
             switch self {
             case .hotkeys: "keyboard"
             case .transcribeFile: "doc.badge.plus"
-            case .history: "clock"
             case .voiceCommands: "text.bubble"
             case .about: "info.circle"
             case .attribution: "doc.text"
@@ -46,8 +44,6 @@ struct SettingsView: View {
                 HotkeySettingsView(config: appState.config, hotkeyListener: appState.hotkeyListener)
             case .transcribeFile:
                 TranscribeFileView()
-            case .history:
-                HistoryView(historyStore: appState.historyStore, config: appState.config)
             case .voiceCommands:
                 VoiceCommandsView(config: appState.config)
             case .about:
