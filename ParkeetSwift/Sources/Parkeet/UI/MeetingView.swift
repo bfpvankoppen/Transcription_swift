@@ -11,6 +11,7 @@ struct MeetingView: View {
     @State private var meetingTranscriber: MeetingTranscriber?
     @State private var isRecording = false
     @State private var errorMessage: String?
+    @State private var hasSavedToHistory = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +23,12 @@ struct MeetingView: View {
         }
         .frame(minWidth: 500, minHeight: 400)
         .onAppear { startMeeting() }
+        .onChange(of: meetingTranscriber?.segments.count) {
+            // When segments update after recording stops, save complete transcript
+            if !isRecording && !hasSavedToHistory {
+                saveToHistoryIfNeeded()
+            }
+        }
     }
 
     // MARK: - Status Bar
@@ -180,14 +187,28 @@ struct MeetingView: View {
         meetingTranscriber?.stop()
         isRecording = false
 
+        // History save is deferred — see saveToHistoryIfNeeded().
+        // The final audio chunk transcribes asynchronously after stop(),
+        // so we observe segment changes to capture the complete transcript.
+        saveToHistoryIfNeeded()
+    }
+
+    /// Save transcript to history once all segments are available.
+    /// Called immediately on stop and again when segments change post-stop.
+    private func saveToHistoryIfNeeded() {
+        guard !isRecording, !hasSavedToHistory else { return }
+        guard let mt = meetingTranscriber, !mt.segments.isEmpty else { return }
+
+        // Wait for any in-flight transcription to finish
+        // (segments will update via @Observable when the final chunk completes)
+
         // Save to history
-        if let mt = meetingTranscriber, !mt.segments.isEmpty {
-            appState.historyStore.add(entry: HistoryEntry(
-                type: .meeting,
-                text: mt.plainText,
-                wordCount: mt.totalWordCount
-            ))
-        }
+        appState.historyStore.add(entry: HistoryEntry(
+            type: .meeting,
+            text: mt.plainText,
+            wordCount: mt.totalWordCount
+        ))
+        hasSavedToHistory = true
     }
 
     private func copyAll() {
