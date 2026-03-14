@@ -102,9 +102,14 @@ struct HistoryView: View {
                 )
             } else {
                 List(filteredEntries) { entry in
+                    let isSemantic = !searchText.isEmpty &&
+                        !(entry.text.lowercased().contains(searchText.lowercased()) ||
+                          (entry.sourceFilename?.lowercased().contains(searchText.lowercased()) ?? false))
+
                     HistoryRowView(
                         entry: entry,
                         isExpanded: expandedID == entry.id,
+                        isSemantic: isSemantic,
                         onToggle: {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 expandedID = expandedID == entry.id ? nil : entry.id
@@ -123,6 +128,7 @@ struct HistoryView: View {
 struct HistoryRowView: View {
     let entry: HistoryEntry
     let isExpanded: Bool
+    var isSemantic: Bool = false
     let onToggle: () -> Void
 
     var body: some View {
@@ -133,6 +139,16 @@ struct HistoryRowView: View {
                 Circle()
                     .fill(entry.type == .hotkey ? .blue : .green)
                     .frame(width: 8, height: 8)
+
+                if isSemantic {
+                    Text("Similar")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.quaternary)
+                        .cornerRadius(3)
+                }
 
                 // Preview text (hidden when expanded to avoid duplication)
                 if !isExpanded {
