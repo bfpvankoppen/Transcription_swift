@@ -57,25 +57,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(
             title: "Settings…",
             action: #selector(openSettings),
-            keyEquivalent: ","
+            keyEquivalent: ""
         ))
 
         menu.addItem(NSMenuItem(
             title: "Transcribe File…",
             action: #selector(openFileTranscription),
-            keyEquivalent: "o"
+            keyEquivalent: ""
         ))
 
         menu.addItem(NSMenuItem(
             title: "History",
             action: #selector(openHistory),
-            keyEquivalent: "h"
+            keyEquivalent: ""
         ))
 
         menu.addItem(NSMenuItem(
             title: "Start Meeting…",
             action: #selector(startMeeting),
-            keyEquivalent: "m"
+            keyEquivalent: ""
         ))
 
         menu.addItem(.separator())
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(
             title: "Quit Parkeet",
             action: #selector(quitApp),
-            keyEquivalent: "q"
+            keyEquivalent: ""
         ))
 
         // Set targets

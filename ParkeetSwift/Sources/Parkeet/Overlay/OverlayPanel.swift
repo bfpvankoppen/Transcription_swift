@@ -26,7 +26,7 @@ final class OverlayPanel: NSPanel {
 
     convenience init() {
         self.init(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 64),
+            contentRect: NSRect(x: 0, y: 0, width: 384, height: 104),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: true
@@ -54,7 +54,7 @@ final class OverlayPanel: NSPanel {
         titlebarAppearsTransparent = true
         backgroundColor = .clear
         isOpaque = false
-        hasShadow = true
+        hasShadow = false
 
         // Hide from screen sharing
         sharingType = .none
@@ -165,8 +165,13 @@ struct OverlayContentView: View {
                 EmptyView()
 
             case .recording:
-                WaveformView(levels: viewModel.levels)
-                    .padding(.horizontal, 16)
+                VStack(spacing: 6) {
+                    WaveformView(levels: viewModel.levels)
+                        .padding(.horizontal, 16)
+                    Text("Speak now…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
 
             case .transcribing:
                 HStack(spacing: 8) {
@@ -187,7 +192,8 @@ struct OverlayContentView: View {
                 }
             }
         }
-        .frame(width: 360, height: 64)
+        .padding(12)
+        .frame(width: 384, height: 104)
     }
 }
 
