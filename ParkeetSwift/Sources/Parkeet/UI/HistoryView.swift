@@ -53,6 +53,7 @@ struct HistoryView: View {
                     Text("48 hours").tag(48.0)
                     Text("7 days").tag(168.0)
                     Text("30 days").tag(720.0)
+                    Text("Forever").tag(0.0)
                 }
                 .frame(width: 120)
 

@@ -38,8 +38,8 @@ final class Config {
 
     var historyRetentionHours: Double {
         get {
-            let val = defaults.double(forKey: Keys.historyRetentionHours)
-            return val > 0 ? val : 48.0
+            if defaults.object(forKey: Keys.historyRetentionHours) == nil { return 48.0 }
+            return defaults.double(forKey: Keys.historyRetentionHours)
         }
         set {
             defaults.set(newValue, forKey: Keys.historyRetentionHours)

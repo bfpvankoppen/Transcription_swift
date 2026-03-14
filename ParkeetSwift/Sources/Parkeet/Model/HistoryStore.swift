@@ -94,6 +94,7 @@ final class HistoryStore {
     }
 
     private func purgeOld() {
+        guard retentionHours > 0 else { return }  // 0 = forever, skip purge
         let cutoff = Date().addingTimeInterval(-retentionHours * 3600)
         let before = entries.count
         entries.removeAll { $0.timestamp < cutoff }
