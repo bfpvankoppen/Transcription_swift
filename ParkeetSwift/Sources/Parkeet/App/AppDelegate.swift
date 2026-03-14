@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var welcomeWindow: NSWindow?
     private var meetingWindow: NSWindow?
+    private var historyWindow: NSWindow?
     private let log = Logger(subsystem: "com.parkeet.app", category: "AppDelegate")
 
     // MARK: - App Lifecycle
@@ -66,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
 
         menu.addItem(NSMenuItem(
+            title: "History",
+            action: #selector(openHistory),
+            keyEquivalent: "h"
+        ))
+
+        menu.addItem(NSMenuItem(
             title: "Start Meeting…",
             action: #selector(startMeeting),
             keyEquivalent: "m"
@@ -95,6 +102,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openFileTranscription() {
         openSettingsWindow(page: .transcribeFile)
+    }
+
+    @objc private func openHistory() {
+        log.info("Opening history window")
+
+        if let window = historyWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+
+        let historyView = HistoryView(historyStore: appState.historyStore, config: appState.config)
+            .environment(appState)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Parkeet — History"
+        window.contentView = NSHostingView(rootView: historyView)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 400, height: 300)
+        self.historyWindow = window
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 
     @objc private func startMeeting() {
