@@ -6,7 +6,7 @@ let sherpaLibPath = "../sherpa-onnx/build-swift-macos/install/lib"
 let sherpaIncludePath = "../sherpa-onnx/build-swift-macos/install/include"
 
 let package = Package(
-    name: "Parkeet",
+    name: "Praten",
     platforms: [
         .macOS(.v14)
     ],
@@ -18,8 +18,9 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "Parkeet",
+            name: "Praten",
             dependencies: ["CSherpaOnnx"],
+            path: "Sources/Parkeet",
             swiftSettings: [
                 .unsafeFlags([
                     "-I\(sherpaIncludePath)",

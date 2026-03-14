@@ -11,7 +11,7 @@ import os
 @MainActor
 struct PermissionChecker {
 
-    private static let log = Logger(subsystem: "com.parkeet.app", category: "Permissions")
+    private static let log = Logger(subsystem: "com.praten.app", category: "Permissions")
 
     /// Check all permissions and trigger native prompts for any that are missing.
     /// Returns `true` if all permissions are already granted.

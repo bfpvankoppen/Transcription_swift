@@ -16,7 +16,7 @@ final class HotkeyListener {
     private var requiredModifiers: NSEvent.ModifierFlags = [.command, .option]
     private var modifiersPressed = false
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "HotkeyListener")
+    private let log = Logger(subsystem: "com.praten.app", category: "HotkeyListener")
 
     // MARK: - Lifecycle
 

@@ -8,7 +8,7 @@ import os
 final class HistoryStore {
 
     private(set) var entries: [HistoryEntry] = []
-    private let log = Logger(subsystem: "com.parkeet.app", category: "HistoryStore")
+    private let log = Logger(subsystem: "com.praten.app", category: "HistoryStore")
 
     private var retentionHours: Double = 48.0
     private(set) var embeddings: [UUID: [String: Float]] = [:]
@@ -26,18 +26,29 @@ final class HistoryStore {
     /// Sandbox-compatible history file location in Application Support.
     private static func historyFileURL() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let parkeetDir = appSupport.appendingPathComponent("Parkeet")
-        try? FileManager.default.createDirectory(at: parkeetDir, withIntermediateDirectories: true)
-        return parkeetDir.appendingPathComponent("history.json")
+        let pratenDir = appSupport.appendingPathComponent("Praten")
+        try? FileManager.default.createDirectory(at: pratenDir, withIntermediateDirectories: true)
+        return pratenDir.appendingPathComponent("history.json")
     }
 
-    /// Migrate history from the old ~/.config/parkeet/ location (pre-sandbox).
+    /// Migrate history from old locations (pre-rename "Parkeet" dir, pre-sandbox ~/.config/).
     private static func migrateIfNeeded(to newURL: URL) {
-        let oldPath = FileManager.default.homeDirectoryForCurrentUser
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: newURL.path) else { return }
+
+        // 1. Migrate from old "Parkeet" Application Support directory
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let oldAppSupportPath = appSupport.appendingPathComponent("Parkeet/history.json")
+        if fm.fileExists(atPath: oldAppSupportPath.path) {
+            try? fm.copyItem(at: oldAppSupportPath, to: newURL)
+            return
+        }
+
+        // 2. Migrate from pre-sandbox ~/.config/parkeet/ location
+        let oldConfigPath = fm.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/parkeet/history.json")
-        if FileManager.default.fileExists(atPath: oldPath.path),
-           !FileManager.default.fileExists(atPath: newURL.path) {
-            try? FileManager.default.copyItem(at: oldPath, to: newURL)
+        if fm.fileExists(atPath: oldConfigPath.path) {
+            try? fm.copyItem(at: oldConfigPath, to: newURL)
         }
     }
 

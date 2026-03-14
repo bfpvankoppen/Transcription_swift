@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build sherpa-onnx for macOS (universal binary: arm64 + x86_64)
-# Run this once before building Parkeet in Xcode.
+# Run this once before building Praten in Xcode.
 #
 # Prerequisites: cmake, git
 # Output: ../sherpa-onnx/build-swift-macos/install/{lib,include}
@@ -49,7 +49,7 @@ echo "=== Library files ==="
 ls -la "$REPO_DIR/build-swift-macos/install/lib/"
 echo ""
 echo "=== Next steps ==="
-echo "1. Open ParkeetSwift in Xcode (xcodegen generate && open Parkeet.xcodeproj)"
+echo "1. Open ParkeetSwift in Xcode (xcodegen generate && open Praten.xcodeproj)"
 echo "2. The project is already configured to find libraries at:"
 echo "   $REPO_DIR/build-swift-macos/install/lib/"
 echo "3. Download the Parakeet model: bash Scripts/download-model.sh"

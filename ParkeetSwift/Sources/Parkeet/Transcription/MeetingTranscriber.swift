@@ -16,8 +16,11 @@ final class MeetingTranscriber {
 
     private(set) var segments: [MeetingSegment] = []
     private(set) var isRecording = false
+    private(set) var isRefining = false
+    private(set) var refinementProgress: Double = 0  // 0.0–1.0
     private(set) var elapsedSeconds: Double = 0
     private(set) var totalWordCount: Int = 0
+    private(set) var canRefine = false  // True when full audio is available for refinement
 
     // MARK: - Dependencies
 
@@ -35,6 +38,7 @@ final class MeetingTranscriber {
     // MARK: - Internal State
 
     private var ringBuffer: [Float] = []
+    private var fullRecordingBuffer: [Float] = []  // Keeps ALL audio for post-stop refinement
     private var windowIndex = 0
     private var lastTranscriptionText: String = ""
     private var pollTimer: Timer?
@@ -42,9 +46,10 @@ final class MeetingTranscriber {
     private var elapsedTimer: Timer?
     private var meetingStartTime: Date?
     private var transcriptionTask: Task<Void, Never>?
+    private var refinementTask: Task<Void, Never>?
     private var isTranscribingChunk = false
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "MeetingTranscriber")
+    private let log = Logger(subsystem: "com.praten.app", category: "MeetingTranscriber")
 
     init(recorder: AudioRecorder, transcriber: Transcriber) {
         self.recorder = recorder
@@ -58,11 +63,15 @@ final class MeetingTranscriber {
 
         segments.removeAll()
         ringBuffer.removeAll()
+        fullRecordingBuffer.removeAll()
         totalWordCount = 0
         elapsedSeconds = 0
         windowIndex = 0
         lastTranscriptionText = ""
         isTranscribingChunk = false
+        isRefining = false
+        refinementProgress = 0
+        canRefine = false
 
         try recorder.start()
         meetingStartTime = Date()
@@ -103,27 +112,39 @@ final class MeetingTranscriber {
         elapsedTimer?.invalidate()
         elapsedTimer = nil
 
-        // Extract any remaining audio into ring buffer
+        // Extract any remaining audio
         let finalSamples = recorder.stop()
         ringBuffer.append(contentsOf: finalSamples)
+        fullRecordingBuffer.append(contentsOf: finalSamples)
 
         isRecording = false
         log.info("Meeting stopped, \(self.segments.count) segments, \(self.totalWordCount) words")
 
-        // Transcribe remaining ring buffer if there's enough audio (>0.5s)
-        let minSamples = Int(0.5 * Self.sampleRate)
-        if ringBuffer.count > minSamples {
-            let chunk: [Float]
-            let windowSamples = Int(Self.windowDuration * Self.sampleRate)
-            if ringBuffer.count > windowSamples {
-                chunk = Array(ringBuffer.suffix(windowSamples))
-            } else {
-                chunk = ringBuffer
-            }
-            let idx = windowIndex
-            windowIndex += 1
-            transcribeChunk(chunk, windowIndex: idx)
+        // Mark that refinement is available (user can choose to trigger it)
+        let audioDuration = Double(fullRecordingBuffer.count) / Self.sampleRate
+        canRefine = audioDuration > 1.0
+        if canRefine {
+            log.info("Full recording available for refinement (\(String(format: "%.0f", audioDuration))s)")
         }
+    }
+
+    /// User-initiated refinement: transcribes the full recording and replaces windowed segments.
+    /// Note: this removes per-segment timestamps since the full transcription is one continuous block.
+    func startRefinement() {
+        guard canRefine, !isRefining, !fullRecordingBuffer.isEmpty else { return }
+        let fullAudio = fullRecordingBuffer
+        isRefining = true
+        refinementProgress = 0
+        canRefine = false
+        log.info("User initiated refinement (\(String(format: "%.0f", Double(fullAudio.count) / Self.sampleRate))s of audio)")
+        refineWithFullTranscription(fullAudio)
+    }
+
+    /// Discard the full recording buffer (user chose not to refine).
+    func discardFullRecording() {
+        fullRecordingBuffer.removeAll()
+        canRefine = false
+        log.info("Full recording discarded, keeping windowed segments with timestamps")
     }
 
     // MARK: - Audio Polling
@@ -134,6 +155,7 @@ final class MeetingTranscriber {
         let newSamples = recorder.extractAccumulatedSamples()
         if !newSamples.isEmpty {
             ringBuffer.append(contentsOf: newSamples)
+            fullRecordingBuffer.append(contentsOf: newSamples)
         }
 
         // Trim ring buffer to safety cap
@@ -207,67 +229,72 @@ final class MeetingTranscriber {
     // MARK: - Overlap Deduplication
 
     /// Merges new transcription text with previous output, deduplicating overlapping content.
+    ///
+    /// Strategy: We know the overlap ratio from the window config (overlapDuration / windowDuration).
+    /// Use this to estimate how many words to skip from the new transcription, then try text matching
+    /// to refine the cut point. If text matching fails, fall back to the time-based estimate.
     private func mergeWithOverlap(newText: String, timestamp: TimeInterval, windowIndex idx: Int) {
+        let newWords = newText.split(separator: " ").map(String.init)
+        guard !newWords.isEmpty else { return }
+
         if idx == 0 || lastTranscriptionText.isEmpty {
             // First window — append as-is
             let segment = MeetingSegment(timestamp: timestamp, text: newText, windowIndex: idx)
             segments.append(segment)
-            totalWordCount += newText.split(separator: " ").count
+            totalWordCount += newWords.count
             lastTranscriptionText = newText
             log.info("Window \(idx) (first): \(newText.prefix(60))…")
             return
         }
 
         let prevWords = lastTranscriptionText.split(separator: " ").map(String.init)
-        let newWords = newText.split(separator: " ").map(String.init)
 
-        let overlapCount = findOverlap(suffix: prevWords, prefix: newWords)
+        // Estimate overlap word count from time ratio: overlapDuration / windowDuration
+        let overlapRatio = Self.overlapDuration / Self.windowDuration
+        let estimatedOverlapWords = Int(Double(newWords.count) * overlapRatio)
 
-        if overlapCount > 0 {
-            // Check if the overlap text differs (correction needed)
-            let prevOverlap = prevWords.suffix(overlapCount).joined(separator: " ")
-            let newOverlap = newWords.prefix(overlapCount).joined(separator: " ")
+        // Try text matching first to find exact cut point
+        let textMatchOverlap = findOverlap(suffix: prevWords, prefix: newWords)
 
+        let skipCount: Int
+        if textMatchOverlap > 0 {
+            // Text matching succeeded — use it and apply correction if needed
+            skipCount = textMatchOverlap
+            let prevOverlap = prevWords.suffix(textMatchOverlap).joined(separator: " ")
+            let newOverlap = newWords.prefix(textMatchOverlap).joined(separator: " ")
             if prevOverlap.lowercased() != newOverlap.lowercased() {
-                log.info("Window \(idx): correcting overlap — '\(prevOverlap.prefix(40))' → '\(newOverlap.prefix(40))'")
                 correctLastSegment(replacingSuffix: prevOverlap, with: newOverlap)
-            } else {
-                log.debug("Window \(idx): overlap matched (\(overlapCount) words)")
-            }
-
-            // Append non-overlapping content
-            let novelWords = newWords.dropFirst(overlapCount)
-            if !novelWords.isEmpty {
-                let novelText = novelWords.joined(separator: " ")
-                let segment = MeetingSegment(timestamp: timestamp, text: novelText, windowIndex: idx)
-                segments.append(segment)
-                totalWordCount += novelWords.count
-                log.info("Window \(idx): +\(novelWords.count) new words: \(novelText.prefix(60))…")
-            } else {
-                log.debug("Window \(idx): no new content beyond overlap")
+                log.info("Window \(idx): text-match corrected overlap (\(textMatchOverlap) words)")
             }
         } else {
-            // No overlap found — append entire text as new segment
-            let segment = MeetingSegment(timestamp: timestamp, text: newText, windowIndex: idx)
+            // Text matching failed — use time-based estimate
+            skipCount = estimatedOverlapWords
+            log.debug("Window \(idx): no text match, skipping ~\(estimatedOverlapWords) words by time estimate")
+        }
+
+        // Append only the novel (non-overlapping) content
+        let novelWords = Array(newWords.dropFirst(skipCount))
+        if !novelWords.isEmpty {
+            let novelText = novelWords.joined(separator: " ")
+            let segment = MeetingSegment(timestamp: timestamp, text: novelText, windowIndex: idx)
             segments.append(segment)
-            totalWordCount += newWords.count
-            log.info("Window \(idx) (no overlap): \(newText.prefix(60))…")
+            totalWordCount += novelWords.count
+            log.info("Window \(idx): +\(novelWords.count) new words (skipped \(skipCount)): \(novelText.prefix(60))…")
+        } else {
+            log.debug("Window \(idx): no new content beyond overlap")
         }
 
         lastTranscriptionText = newText
     }
 
     /// Greedy search for the longest suffix of `suffix` words that matches a prefix of `prefix` words.
-    /// Uses normalized (lowercased) comparison. Requires at least 3 matching words and 60% match rate.
+    /// Uses normalized (lowercased) comparison. Accepts matches with ≥50% word match and ≥2 matching words.
     private func findOverlap(suffix prevWords: [String], prefix newWords: [String]) -> Int {
-        guard prevWords.count >= 3, newWords.count >= 3 else { return 0 }
+        guard prevWords.count >= 2, newWords.count >= 2 else { return 0 }
 
-        // Maximum possible overlap is the smaller of the two arrays
         let maxOverlap = min(prevWords.count, newWords.count)
-        var bestOverlap = 0
 
-        // Try overlap lengths from largest to smallest, take the first good one
-        for length in stride(from: maxOverlap, through: 3, by: -1) {
+        for length in stride(from: maxOverlap, through: 2, by: -1) {
             let suffixSlice = prevWords.suffix(length)
             let prefixSlice = newWords.prefix(length)
 
@@ -279,35 +306,85 @@ final class MeetingTranscriber {
             }
 
             let matchRate = Double(matchCount) / Double(length)
-            if matchRate >= 0.6 && matchCount >= 3 {
-                bestOverlap = length
+            if matchRate >= 0.5 && matchCount >= 2 {
                 log.debug("Overlap found: \(length) words, \(String(format: "%.0f", matchRate * 100))% match")
-                break
+                return length
             }
         }
 
-        return bestOverlap
+        return 0
     }
 
     /// Walk backwards through segments to find and correct text that was wrong in the overlap region.
     private func correctLastSegment(replacingSuffix oldSuffix: String, with newSuffix: String) {
-        // Walk backwards to find the segment containing the old suffix
         for i in stride(from: segments.count - 1, through: 0, by: -1) {
             let segmentText = segments[i].text
-            // Check if this segment ends with (or contains) the old suffix
             if let range = segmentText.range(of: oldSuffix, options: [.caseInsensitive, .backwards]) {
                 let corrected = segmentText.replacingCharacters(in: range, with: newSuffix)
                 segments[i].text = corrected
-
-                // Recalculate total word count
                 totalWordCount = segments.reduce(0) { $0 + $1.text.split(separator: " ").count }
-
                 log.info("Corrected segment \(i): '\(segmentText.prefix(40))' → '\(corrected.prefix(40))'")
                 return
             }
         }
-
         log.debug("Could not find segment to correct for suffix: '\(oldSuffix.prefix(40))'")
+    }
+
+    // MARK: - Full Recording Refinement
+
+    /// Transcribe the entire meeting audio and replace windowed segments with the authoritative result.
+    /// Clears the full recording buffer when done.
+    private func refineWithFullTranscription(_ fullAudio: [Float]) {
+        let transcriber = self.transcriber
+        let audioDuration = Double(fullAudio.count) / Self.sampleRate
+        // Estimate processing time: Parakeet runs at ~0.08x RTF on Apple Silicon
+        let estimatedProcessingTime = audioDuration * 0.08
+
+        // Progress timer: update estimated progress based on elapsed time
+        let progressStart = Date()
+        let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                let elapsed = Date().timeIntervalSince(progressStart)
+                // Cap at 95% — the last 5% happens when transcription actually completes
+                let progress = min(0.95, elapsed / max(1, estimatedProcessingTime))
+                self.refinementProgress = progress
+            }
+        }
+
+        refinementTask = Task.detached(priority: .userInitiated) {
+            let fullText = await transcriber.transcribe(audio: fullAudio)
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                progressTimer.invalidate()
+
+                let trimmed = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    self.log.warning("Full transcription returned empty, keeping windowed segments")
+                    self.isRefining = false
+                    self.refinementProgress = 0
+                    self.fullRecordingBuffer.removeAll()
+                    return
+                }
+
+                self.log.info("Full transcription: \(trimmed.count) chars, replacing \(self.segments.count) windowed segments")
+
+                // Replace all windowed segments with a single authoritative segment
+                let fullWords = trimmed.split(separator: " ")
+                self.segments = [MeetingSegment(
+                    timestamp: 0,
+                    text: trimmed,
+                    windowIndex: -1  // Indicates full-recording refinement
+                )]
+                self.totalWordCount = fullWords.count
+                self.refinementProgress = 1.0
+
+                self.log.info("Refinement complete: \(fullWords.count) words")
+                self.isRefining = false
+                self.fullRecordingBuffer.removeAll()
+            }
+        }
     }
 
     // MARK: - Export

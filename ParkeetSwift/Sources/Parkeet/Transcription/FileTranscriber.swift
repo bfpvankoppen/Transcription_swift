@@ -9,7 +9,7 @@ final class FileTranscriber {
 
     private let transcriber: Transcriber
     private var cancelled = false
-    private let log = Logger(subsystem: "com.parkeet.app", category: "FileTranscriber")
+    private let log = Logger(subsystem: "com.praten.app", category: "FileTranscriber")
 
     private static let chunkDuration: Double = 30.0  // seconds
 

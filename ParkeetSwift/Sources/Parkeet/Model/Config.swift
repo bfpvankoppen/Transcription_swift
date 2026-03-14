@@ -3,12 +3,12 @@ import os
 
 /// Persistent configuration using UserDefaults.
 ///
-/// Stored at ~/Library/Preferences/com.parkeet.app.plist (standard for macOS apps).
+/// Stored at ~/Library/Preferences/com.praten.app.plist (standard for macOS apps).
 @Observable
 final class Config {
 
     private let defaults = UserDefaults.standard
-    private let log = Logger(subsystem: "com.parkeet.app", category: "Config")
+    private let log = Logger(subsystem: "com.praten.app", category: "Config")
 
     // MARK: - Keys
 

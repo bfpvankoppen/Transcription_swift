@@ -9,7 +9,7 @@ final class EmbeddingEngine {
 
     private var idfScores: [String: Float] = [:]
     private var documentCount: Int = 0
-    private let logger = Logger(subsystem: "com.parkeet.app", category: "EmbeddingEngine")
+    private let logger = Logger(subsystem: "com.praten.app", category: "EmbeddingEngine")
 
     init() {
         logger.info("EmbeddingEngine initialized (TF-IDF mode)")

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ParkeetApp: App {
+struct PratenApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

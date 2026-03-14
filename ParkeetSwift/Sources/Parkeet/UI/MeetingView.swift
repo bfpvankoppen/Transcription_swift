@@ -24,8 +24,13 @@ struct MeetingView: View {
         .frame(minWidth: 500, minHeight: 400)
         .onAppear { startMeeting() }
         .onChange(of: meetingTranscriber?.segments.count) {
-            // When segments update after recording stops, save complete transcript
             if !isRecording && !hasSavedToHistory {
+                saveToHistoryIfNeeded()
+            }
+        }
+        .onChange(of: meetingTranscriber?.isRefining) {
+            // Save to history once refinement completes
+            if meetingTranscriber?.isRefining == false && !hasSavedToHistory {
                 saveToHistoryIfNeeded()
             }
         }
@@ -42,10 +47,16 @@ struct MeetingView: View {
                 Text("Recording")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.red)
+            } else if let mt = meetingTranscriber, mt.isRefining {
+                ProgressView(value: mt.refinementProgress)
+                    .frame(width: 60)
+                Text("Refining… \(Int(mt.refinementProgress * 100))%")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.orange)
             } else if let mt = meetingTranscriber, !mt.segments.isEmpty {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                Text("Meeting ended")
+                Text("Recording ended")
                     .font(.system(size: 13, weight: .medium))
             }
 
@@ -126,6 +137,11 @@ struct MeetingView: View {
         Group {
             if isRecording {
                 recordingControls
+            } else if let mt = meetingTranscriber, mt.isRefining {
+                // Show progress during refinement
+                EmptyView()
+            } else if let mt = meetingTranscriber, mt.canRefine {
+                refineChoiceControls
             } else if let mt = meetingTranscriber, !mt.segments.isEmpty {
                 completedControls
             }
@@ -137,12 +153,38 @@ struct MeetingView: View {
 
     private var recordingControls: some View {
         Button(action: stopMeeting) {
-            Label("Stop Meeting", systemImage: "stop.fill")
+            Label("Stop Recording", systemImage: "stop.fill")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .tint(.red)
         .controlSize(.large)
+    }
+
+    private var refineChoiceControls: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Button(action: { meetingTranscriber?.startRefinement() }) {
+                    Label("Refine Transcript", systemImage: "wand.and.stars")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button(action: {
+                    meetingTranscriber?.discardFullRecording()
+                    saveToHistoryIfNeeded()
+                }) {
+                    Label("Keep As-Is", systemImage: "checkmark")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+            Text("Refining re-transcribes the full recording for better accuracy, but removes timestamps.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var completedControls: some View {
@@ -193,14 +235,12 @@ struct MeetingView: View {
         saveToHistoryIfNeeded()
     }
 
-    /// Save transcript to history once all segments are available.
-    /// Called immediately on stop and again when segments change post-stop.
+    /// Save transcript to history once user has chosen (refine or keep).
     private func saveToHistoryIfNeeded() {
         guard !isRecording, !hasSavedToHistory else { return }
         guard let mt = meetingTranscriber, !mt.segments.isEmpty else { return }
-
-        // Wait for any in-flight transcription to finish
-        // (segments will update via @Observable when the final chunk completes)
+        guard !mt.isRefining else { return }  // Wait for refinement to finish
+        guard !mt.canRefine else { return }   // Wait for user to choose refine/keep
 
         // Save to history
         appState.historyStore.add(entry: HistoryEntry(

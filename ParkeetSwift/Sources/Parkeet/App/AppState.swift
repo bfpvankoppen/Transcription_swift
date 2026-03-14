@@ -42,12 +42,12 @@ final class AppState {
     private var targetApp: NSRunningApplication?
     private var hotkeyStarted = false
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "AppState")
+    private let log = Logger(subsystem: "com.praten.app", category: "AppState")
 
     // MARK: - Lifecycle
 
     func start() {
-        log.info("Starting Parkeet")
+        log.info("Starting Praten")
         state = .loading
         statusText = "Loading model…"
 

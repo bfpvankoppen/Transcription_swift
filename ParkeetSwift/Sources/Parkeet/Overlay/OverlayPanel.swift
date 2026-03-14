@@ -20,7 +20,7 @@ final class OverlayPanel: NSPanel {
     private var overlayViewModel = OverlayViewModel()
     private var fadeAnimator: NSViewAnimation?
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "OverlayPanel")
+    private let log = Logger(subsystem: "com.praten.app", category: "OverlayPanel")
 
     // MARK: - Init
 

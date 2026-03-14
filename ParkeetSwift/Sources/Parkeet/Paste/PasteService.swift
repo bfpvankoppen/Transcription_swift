@@ -7,7 +7,7 @@ import os
 /// Requires Accessibility permission for CGEvent.post().
 final class PasteService {
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "PasteService")
+    private let log = Logger(subsystem: "com.praten.app", category: "PasteService")
 
     /// Write text to clipboard and simulate Cmd+V in the frontmost app.
     func paste(text: String) {

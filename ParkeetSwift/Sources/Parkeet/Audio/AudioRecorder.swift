@@ -15,7 +15,7 @@ final class AudioRecorder: @unchecked Sendable {
     /// Current RMS levels for 28 waveform bars, normalized to [0, 1].
     private(set) var currentLevels: [Float] = Array(repeating: 0, count: 28)
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "AudioRecorder")
+    private let log = Logger(subsystem: "com.praten.app", category: "AudioRecorder")
 
     static let targetSampleRate: Double = 16000
     static let barCount = 28

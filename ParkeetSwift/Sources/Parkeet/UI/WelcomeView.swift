@@ -6,7 +6,7 @@ import os
 /// First-launch onboarding window that guides users through permissions setup.
 ///
 /// Shows on first launch only. Three steps:
-/// 1. Welcome — what Parkeet does
+/// 1. Welcome — what Praten does
 /// 2. Permissions — grant microphone + accessibility with live status
 /// 3. Ready — shows the hotkey and how to start
 struct WelcomeView: View {
@@ -18,7 +18,7 @@ struct WelcomeView: View {
     @State private var pollTimer: Timer?
     @State private var desktopShortcutCreated = false
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "WelcomeView")
+    private let log = Logger(subsystem: "com.praten.app", category: "WelcomeView")
 
     var onComplete: () -> Void
 
@@ -94,7 +94,7 @@ struct WelcomeView: View {
                 .font(.system(size: 64))
                 .foregroundStyle(.tint)
 
-            Text("Welcome to Parkeet")
+            Text("Welcome to Praten")
                 .font(.system(size: 24, weight: .semibold))
 
             Text("Speech-to-text that works everywhere on your Mac.")
@@ -133,7 +133,7 @@ struct WelcomeView: View {
             Text("Permissions")
                 .font(.system(size: 24, weight: .semibold))
 
-            Text("Parkeet needs two permissions to work.\nThis only takes a moment.")
+            Text("Praten needs two permissions to work.\nThis only takes a moment.")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -235,9 +235,9 @@ struct WelcomeView: View {
             if !accessibilityGranted {
                 VStack(alignment: .leading, spacing: 6) {
                     instructionRow(number: "1", text: "Click the button below — **System Settings** will open")
-                    instructionRow(number: "2", text: "If Parkeet is in the list, **toggle the switch on**")
+                    instructionRow(number: "2", text: "If Praten is in the list, **toggle the switch on**")
                     instructionRow(number: "3", text: "If not, click the **+** button at the bottom")
-                    instructionRow(number: "4", text: "Go to **Applications**, search for **Parkeet**, and select it")
+                    instructionRow(number: "4", text: "Go to **Applications**, search for **Praten**, and select it")
                     instructionRow(number: "5", text: "Come back here — it will update automatically")
                 }
                 .padding(.leading, 4)
@@ -348,7 +348,7 @@ struct WelcomeView: View {
                 Text("Shortcut Added!")
                     .font(.system(size: 24, weight: .semibold))
 
-                Text("Parkeet is now on your Desktop.\nClick **Get Started** to begin.")
+                Text("Praten is now on your Desktop.\nClick **Get Started** to begin.")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -360,7 +360,7 @@ struct WelcomeView: View {
                 Text("Add to Desktop?")
                     .font(.system(size: 24, weight: .semibold))
 
-                Text("Create a shortcut on your Desktop so you\ncan easily find and launch Parkeet.")
+                Text("Create a shortcut on your Desktop so you\ncan easily find and launch Praten.")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -385,8 +385,8 @@ struct WelcomeView: View {
 
         // Use NSSavePanel so the sandbox grants write access to the chosen location
         let panel = NSSavePanel()
-        panel.title = "Save Parkeet Shortcut"
-        panel.nameFieldStringValue = "Parkeet"
+        panel.title = "Save Praten Shortcut"
+        panel.nameFieldStringValue = "Praten"
         panel.allowedContentTypes = [.aliasFile]
         panel.canCreateDirectories = false
 

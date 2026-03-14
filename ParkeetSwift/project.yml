@@ -1,6 +1,6 @@
-name: Parkeet
+name: Praten
 options:
-  bundleIdPrefix: com.parkeet
+  bundleIdPrefix: com.praten
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "15.0"
@@ -32,7 +32,7 @@ settings:
       - "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/include"
 
 targets:
-  Parkeet:
+  Praten:
     type: application
     platform: macOS
     sources:
@@ -43,9 +43,9 @@ targets:
     settings:
       base:
         INFOPLIST_FILE: Support/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Support/Parkeet.entitlements
-        PRODUCT_BUNDLE_IDENTIFIER: com.parkeet.app
-        PRODUCT_NAME: Parkeet
+        CODE_SIGN_ENTITLEMENTS: Support/Praten.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.praten.app
+        PRODUCT_NAME: Praten
         MARKETING_VERSION: "2.0.0"
         CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -56,4 +56,4 @@ targets:
         Release:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
     entitlements:
-      path: Support/Parkeet.entitlements
+      path: Support/Praten.entitlements

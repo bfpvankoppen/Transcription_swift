@@ -12,12 +12,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var welcomeWindow: NSWindow?
     private var meetingWindow: NSWindow?
     private var historyWindow: NSWindow?
-    private let log = Logger(subsystem: "com.parkeet.app", category: "AppDelegate")
+    private var aboutWindow: NSWindow?
+    private let log = Logger(subsystem: "com.praten.app", category: "AppDelegate")
 
     // MARK: - App Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        log.info("Parkeet launching")
+        log.info("Praten launching")
 
         // Accessory app: no dock icon, overlay can appear on all Spaces
         NSApp.setActivationPolicy(.accessory)
@@ -41,16 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Parkeet")
+            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Praten")
             button.image?.size = NSSize(width: 16, height: 16)
             button.image?.isTemplate = true
         }
 
         let menu = NSMenu()
 
-        let statusMenuItem = NSMenuItem(title: "Parkeet", action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
+        menu.addItem(NSMenuItem(
+            title: "About Praten…",
+            action: #selector(openAbout),
+            keyEquivalent: ""
+        ))
 
         menu.addItem(.separator())
 
@@ -73,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
 
         menu.addItem(NSMenuItem(
-            title: "Start Meeting…",
+            title: "Record Meeting…",
             action: #selector(startMeeting),
             keyEquivalent: ""
         ))
@@ -81,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         menu.addItem(NSMenuItem(
-            title: "Quit Parkeet",
+            title: "Quit Praten",
             action: #selector(quitApp),
             keyEquivalent: ""
         ))
@@ -95,6 +98,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Menu Actions
+
+    @objc private func openAbout() {
+        log.info("Opening about window")
+
+        if let window = aboutWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+
+        let aboutView = AboutView()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "About Praten"
+        window.contentView = NSHostingView(rootView: aboutView)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 400, height: 400)
+        self.aboutWindow = window
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
 
     @objc private func openSettings() {
         openSettingsWindow(page: .hotkeys)
@@ -122,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Parkeet — History"
+        window.title = "Praten — History"
         window.contentView = NSHostingView(rootView: historyView)
         window.center()
         window.isReleasedWhenClosed = false
@@ -146,7 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Parkeet — Meeting"
+        window.title = "Praten — Recording"
         window.contentView = NSHostingView(rootView: meetingView)
         window.center()
         window.isReleasedWhenClosed = false
@@ -179,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Parkeet Settings"
+        window.title = "Praten Settings"
         window.contentView = NSHostingView(rootView: settingsView)
         window.center()
         window.isReleasedWhenClosed = false
@@ -207,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Welcome to Parkeet"
+        window.title = "Welcome to Praten"
         window.contentView = NSHostingView(rootView: welcomeView)
         window.center()
         window.isReleasedWhenClosed = false
@@ -218,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitApp() {
-        log.info("Quitting Parkeet")
+        log.info("Quitting Praten")
         NSApp.terminate(nil)
     }
 }

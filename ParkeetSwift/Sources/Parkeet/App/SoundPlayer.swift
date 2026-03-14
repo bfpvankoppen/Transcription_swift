@@ -10,7 +10,7 @@ final class SoundPlayer {
         case transcriptionComplete
     }
 
-    private let log = Logger(subsystem: "com.parkeet.app", category: "SoundPlayer")
+    private let log = Logger(subsystem: "com.praten.app", category: "SoundPlayer")
 
     private static let soundPaths: [Sound: String] = [
         .recordStart: "/System/Library/Sounds/Tink.aiff",

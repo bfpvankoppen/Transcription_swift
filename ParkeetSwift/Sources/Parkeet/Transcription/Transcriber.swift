@@ -8,7 +8,7 @@ import os
 final class Transcriber: @unchecked Sendable {
 
     private var recognizer: SherpaOnnxOfflineRecognizer?
-    private let log = Logger(subsystem: "com.parkeet.app", category: "Transcriber")
+    private let log = Logger(subsystem: "com.praten.app", category: "Transcriber")
 
     private static let modelDirName = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
 
@@ -85,7 +85,7 @@ final class Transcriber: @unchecked Sendable {
 
     /// Find the model directory in the app bundle or project resources.
     private static func findModelDirectory() throws -> URL {
-        let log = Logger(subsystem: "com.parkeet.app", category: "Transcriber")
+        let log = Logger(subsystem: "com.praten.app", category: "Transcriber")
 
         // 1. Check app bundle Resources (production path)
         if let bundlePath = Bundle.main.resourceURL?.appendingPathComponent("models/\(modelDirName)"),
@@ -118,7 +118,7 @@ enum TranscriberError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .modelNotFound:
-            "Parakeet model not found. Run Scripts/download-model.sh to download it."
+            "Speech model not found. Please reinstall Praten."
         case .modelLoadFailed:
             "Failed to initialize the speech recognition model."
         }

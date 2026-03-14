@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Parkeet with SPM and create a runnable .app bundle.
+# Build Praten with SPM and create a runnable .app bundle.
 # Usage: bash run.sh [--release] [--dmg]
 
 set -euo pipefail
@@ -17,15 +17,15 @@ for arg in "$@"; do
     esac
 done
 
-BUILD_APP="$SCRIPT_DIR/.build/Parkeet.app"
+BUILD_APP="$SCRIPT_DIR/.build/Praten.app"
 CONTENTS="$BUILD_APP/Contents"
 MACOS="$CONTENTS/MacOS"
 
 # Install location — ~/Applications/ so macOS recognizes it in permission dialogs
 INSTALL_DIR="$HOME/Applications"
-INSTALL_APP="$INSTALL_DIR/Parkeet.app"
+INSTALL_APP="$INSTALL_DIR/Praten.app"
 
-echo "=== Building Parkeet ($CONFIG) ==="
+echo "=== Building Praten ($CONFIG) ==="
 swift build $SWIFT_FLAGS
 
 echo "=== Creating .app bundle ==="
@@ -33,7 +33,7 @@ rm -rf "$BUILD_APP"
 mkdir -p "$MACOS" "$CONTENTS/Resources"
 
 # Copy executable (statically linked — no Frameworks/ needed)
-cp ".build/$CONFIG/Parkeet" "$MACOS/Parkeet"
+cp ".build/$CONFIG/Praten" "$MACOS/Praten"
 
 # Copy model into bundle so the app doesn't depend on the dev source path
 MODEL_SRC="$SCRIPT_DIR/Resources/models"
@@ -52,14 +52,14 @@ if [ -f "$ICON_SRC" ]; then
 fi
 
 # Copy entitlements (used during signing)
-ENTITLEMENTS="$SCRIPT_DIR/Support/Parkeet.entitlements"
+ENTITLEMENTS="$SCRIPT_DIR/Support/Praten.entitlements"
 
 # ---------- Code Signing ----------
 # Use a stable self-signed certificate so macOS preserves permissions across rebuilds.
 # The certificate lives in a dedicated keychain with an empty password so codesign
 # never prompts for a password. This is the standard CI/CD approach.
-CERT_NAME="Parkeet Dev"
-KEYCHAIN="parkeet-dev.keychain"
+CERT_NAME="Praten Dev"
+KEYCHAIN="praten-dev.keychain"
 KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN"
 
 # Create the dedicated keychain and certificate if they don't exist yet
@@ -70,7 +70,7 @@ if ! security find-identity -v -p codesigning -s "$KEYCHAIN_PATH" 2>/dev/null | 
     SYSSL=/usr/bin/openssl
 
     # Generate a self-signed code signing certificate (valid 10 years)
-    cat > /tmp/parkeet-cert.conf <<CERTEOF
+    cat > /tmp/praten-cert.conf <<CERTEOF
 [ req ]
 default_bits       = 2048
 distinguished_name = req_dn
@@ -85,9 +85,9 @@ keyUsage = digitalSignature
 extendedKeyUsage = codeSigning
 basicConstraints = CA:false
 CERTEOF
-    $SYSSL req -x509 -newkey rsa:2048 -keyout /tmp/parkeet-key.pem \
-        -out /tmp/parkeet-cert.pem -days 3650 -nodes \
-        -config /tmp/parkeet-cert.conf 2>/dev/null
+    $SYSSL req -x509 -newkey rsa:2048 -keyout /tmp/praten-key.pem \
+        -out /tmp/praten-cert.pem -days 3650 -nodes \
+        -config /tmp/praten-cert.conf 2>/dev/null
 
     # Create a dedicated keychain with empty password (no prompts ever)
     security delete-keychain "$KEYCHAIN" 2>/dev/null || true
@@ -98,16 +98,16 @@ CERTEOF
     security list-keychains -d user -s $EXISTING "$KEYCHAIN_PATH"
 
     # Import key and certificate into the dedicated keychain
-    security import /tmp/parkeet-key.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
-    security import /tmp/parkeet-cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+    security import /tmp/praten-key.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+    security import /tmp/praten-cert.pem -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
 
     # Allow codesign to access the key without prompting
     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH" >/dev/null 2>&1
 
     # Trust the certificate for code signing
-    security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN_PATH" /tmp/parkeet-cert.pem
+    security add-trusted-cert -d -r trustRoot -k "$KEYCHAIN_PATH" /tmp/praten-cert.pem
 
-    rm -f /tmp/parkeet-cert.conf /tmp/parkeet-key.pem /tmp/parkeet-cert.pem
+    rm -f /tmp/praten-cert.conf /tmp/praten-key.pem /tmp/praten-cert.pem
     echo "Certificate '$CERT_NAME' ready (no password prompts)."
 fi
 
@@ -132,12 +132,12 @@ cp -R "$BUILD_APP" "$INSTALL_APP"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_APP"
 
 echo ""
-echo "=== Parkeet.app ready ==="
+echo "=== Praten.app ready ==="
 echo "Location: $INSTALL_APP"
 
 # ---------- DMG Creation ----------
 if $MAKE_DMG; then
-    DMG_PATH="$SCRIPT_DIR/.build/Parkeet.dmg"
+    DMG_PATH="$SCRIPT_DIR/.build/Praten.dmg"
     DMG_STAGING="$SCRIPT_DIR/.build/dmg-staging"
 
     echo ""
@@ -146,14 +146,14 @@ if $MAKE_DMG; then
     mkdir -p "$DMG_STAGING"
 
     # Copy signed app into staging
-    cp -R "$INSTALL_APP" "$DMG_STAGING/Parkeet.app"
+    cp -R "$INSTALL_APP" "$DMG_STAGING/Praten.app"
 
     # Add Applications symlink for drag-to-install
     ln -s /Applications "$DMG_STAGING/Applications"
 
     # Create compressed DMG
     hdiutil create \
-        -volname "Parkeet" \
+        -volname "Praten" \
         -srcfolder "$DMG_STAGING" \
         -ov -format UDZO \
         "$DMG_PATH"
@@ -164,7 +164,7 @@ if $MAKE_DMG; then
     echo ""
     echo "=== DMG ready ==="
     echo "Location: $DMG_PATH ($DMG_SIZE)"
-    echo "Share this file — the recipient drags Parkeet.app to Applications."
+    echo "Share this file — the recipient drags Praten.app to Applications."
 else
     echo ""
     echo "Launching..."

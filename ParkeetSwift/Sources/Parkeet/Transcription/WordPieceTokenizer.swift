@@ -13,7 +13,7 @@ final class WordPieceTokenizer {
     private let sepTokenID: Int32
     private let padTokenID: Int32
     private let maxLength: Int
-    private let log = Logger(subsystem: "com.parkeet.app", category: "WordPieceTokenizer")
+    private let log = Logger(subsystem: "com.praten.app", category: "WordPieceTokenizer")
 
     init(vocabURL: URL, maxLength: Int = 128) throws {
         let content = try String(contentsOf: vocabURL, encoding: .utf8)
