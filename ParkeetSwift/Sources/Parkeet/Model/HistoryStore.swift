@@ -11,7 +11,7 @@ final class HistoryStore {
     private let log = Logger(subsystem: "com.praten.app", category: "HistoryStore")
 
     private var retentionHours: Double = 48.0
-    private(set) var embeddings: [UUID: [String: Float]] = [:]
+    private(set) var embeddings: [UUID: [Double]] = [:]
     var embeddingEngine: EmbeddingEngine?
 
     private var storageURL: URL {
@@ -59,8 +59,8 @@ final class HistoryStore {
         purgeOld()
         save()
         log.info("History entry added: \(entry.type.rawValue), \(entry.wordCount) words")
-        if let engine = embeddingEngine {
-            embeddings[entry.id] = engine.embed(entry.text)
+        if let engine = embeddingEngine, let vec = engine.embed(entry.text) {
+            embeddings[entry.id] = vec
         }
     }
 
@@ -85,10 +85,11 @@ final class HistoryStore {
 
     func rebuildEmbeddings() {
         guard let engine = embeddingEngine else { return }
-        engine.updateIDF(documents: entries.map(\.text))
         embeddings = [:]
         for entry in entries {
-            embeddings[entry.id] = engine.embed(entry.text)
+            if let vec = engine.embed(entry.text) {
+                embeddings[entry.id] = vec
+            }
         }
         log.info("Rebuilt embeddings for \(self.entries.count) entries")
     }

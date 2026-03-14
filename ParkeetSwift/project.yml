@@ -39,13 +39,28 @@ targets:
       - path: Sources/Parkeet
       - path: Resources/Assets.xcassets
     resources:
-      - path: Resources/models
       - path: Resources/AppIcon.icns
       - path: Support/PrivacyInfo.xcprivacy
+    postCompileScripts:
+      - name: Copy Models to Bundle
+        script: |
+          MODEL_SRC="${PROJECT_DIR}/Resources/models"
+          MODEL_DST="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/models"
+
+          echo "Copy Models: SRC=$MODEL_SRC DST=$MODEL_DST"
+
+          if [ -d "$MODEL_SRC" ]; then
+            mkdir -p "$MODEL_DST"
+            rsync -a --delete "$MODEL_SRC/" "$MODEL_DST/"
+            echo "Copied models to bundle ($(du -sh "$MODEL_DST" | cut -f1))"
+          else
+            echo "warning: Models directory not found at $MODEL_SRC"
+            echo "warning: Run Scripts/download-model.sh to download the transcription model"
+          fi
+        basedOnDependencyAnalysis: false
     settings:
       base:
         INFOPLIST_FILE: Support/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Support/Praten.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.praten.app
         PRODUCT_NAME: Praten
         MARKETING_VERSION: "2.0.0"
@@ -55,7 +70,8 @@ targets:
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: YES
       configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Support/Praten-Debug.entitlements
         Release:
+          CODE_SIGN_ENTITLEMENTS: Support/Praten.entitlements
           SWIFT_OPTIMIZATION_LEVEL: "-O"
-    entitlements:
-      path: Support/Praten.entitlements

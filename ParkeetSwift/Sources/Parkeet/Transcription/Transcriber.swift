@@ -94,8 +94,8 @@ final class Transcriber: @unchecked Sendable {
             return bundlePath
         }
 
-        // 2. Development fallback (won't work in sandbox, that's OK)
-        let devPath = URL(fileURLWithPath: #file)
+        // 2. Development fallback — #filePath gives full filesystem path
+        let devPath = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()  // Transcription/
             .deletingLastPathComponent()  // Parkeet/
             .deletingLastPathComponent()  // Sources/

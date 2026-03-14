@@ -74,8 +74,14 @@ struct PermissionChecker {
             return true
         }
 
-        log.warning("Accessibility permission not granted — user must add manually in System Settings")
-        return false
+        // Prompt: true triggers the native macOS dialog that auto-adds the app
+        // to System Settings > Accessibility. User just needs to toggle the switch.
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(options)
+        if !trusted {
+            log.warning("Accessibility permission not granted — prompted user via system dialog")
+        }
+        return trusted
     }
 
     /// Open System Settings to the Accessibility privacy pane.

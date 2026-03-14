@@ -208,6 +208,7 @@
 			buildConfigurationList = 8BDCD066757581EDF1FCAFC9 /* Build configuration list for PBXNativeTarget "Praten" */;
 			buildPhases = (
 				692E5A413DCD407A582ABB15 /* Sources */,
+				2DCE670B0391454A92F315A2 /* Copy Models to Bundle */,
 				61BCCB1F018CB9C94DD974EA /* Resources */,
 			);
 			buildRules = (
@@ -231,6 +232,7 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					977CCEA99C42F57CA26BCC1B = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -264,6 +266,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		2DCE670B0391454A92F315A2 /* Copy Models to Bundle */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Models to Bundle";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "MODEL_SRC=\"${PROJECT_DIR}/Resources/models\"\nMODEL_DST=\"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/models\"\n\necho \"Copy Models: SRC=$MODEL_SRC DST=$MODEL_DST\"\n\nif [ -d \"$MODEL_SRC\" ]; then\n  mkdir -p \"$MODEL_DST\"\n  rsync -a --delete \"$MODEL_SRC/\" \"$MODEL_DST/\"\n  echo \"Copied models to bundle ($(du -sh \"$MODEL_DST\" | cut -f1))\"\nelse\n  echo \"warning: Models directory not found at $MODEL_SRC\"\n  echo \"warning: Run Scripts/download-model.sh to download the transcription model\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		692E5A413DCD407A582ABB15 /* Sources */ = {
@@ -304,15 +328,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = Support/Praten.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "Support/Praten-Debug.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = D7WXF628CN;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Support/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Praten;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -332,11 +354,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = D7WXF628CN;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Support/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Praten;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -400,8 +420,12 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/include";
-				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/lib";
+				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/include",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/lib",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -476,8 +500,12 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/include";
-				LIBRARY_SEARCH_PATHS = "$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/lib";
+				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/include",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/../sherpa-onnx/build-swift-macos/install/lib",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
