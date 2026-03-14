@@ -35,6 +35,7 @@ final class AppState {
     let historyStore = HistoryStore()
     let overlay = OverlayPanel()
     let soundPlayer = SoundPlayer()
+    let embeddingEngine = EmbeddingEngine()
 
     private var levelTimer: Timer?
     private var permissionTimer: Timer?
@@ -49,6 +50,9 @@ final class AppState {
         log.info("Starting Parkeet")
         state = .loading
         statusText = "Loading model…"
+
+        historyStore.embeddingEngine = embeddingEngine
+        historyStore.rebuildEmbeddings()
 
         // Load model in background
         Task.detached(priority: .userInitiated) { [self] in

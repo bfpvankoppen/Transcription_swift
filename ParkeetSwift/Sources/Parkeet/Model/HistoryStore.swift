@@ -11,6 +11,9 @@ final class HistoryStore {
     private let log = Logger(subsystem: "com.parkeet.app", category: "HistoryStore")
 
     private var retentionHours: Double = 48.0
+    private(set) var embeddings: [UUID: [String: Float]] = [:]
+    var embeddingEngine: EmbeddingEngine?
+
     private var storageURL: URL {
         Self.historyFileURL()
     }
@@ -45,15 +48,20 @@ final class HistoryStore {
         purgeOld()
         save()
         log.info("History entry added: \(entry.type.rawValue), \(entry.wordCount) words")
+        if let engine = embeddingEngine {
+            embeddings[entry.id] = engine.embed(entry.text)
+        }
     }
 
     func remove(id: UUID) {
         entries.removeAll { $0.id == id }
+        embeddings.removeValue(forKey: id)
         save()
     }
 
     func clear() {
         entries.removeAll()
+        embeddings.removeAll()
         save()
         log.info("History cleared")
     }
@@ -62,6 +70,16 @@ final class HistoryStore {
         retentionHours = hours
         purgeOld()
         save()
+    }
+
+    func rebuildEmbeddings() {
+        guard let engine = embeddingEngine else { return }
+        engine.updateIDF(documents: entries.map(\.text))
+        embeddings = [:]
+        for entry in entries {
+            embeddings[entry.id] = engine.embed(entry.text)
+        }
+        log.info("Rebuilt embeddings for \(self.entries.count) entries")
     }
 
     // MARK: - Persistence

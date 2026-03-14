@@ -12,10 +12,32 @@ struct HistoryView: View {
             return historyStore.entries
         }
         let query = searchText.lowercased()
-        return historyStore.entries.filter {
+
+        // Keyword matches first
+        let keywordMatches = historyStore.entries.filter {
             $0.text.lowercased().contains(query) ||
             ($0.sourceFilename?.lowercased().contains(query) ?? false)
         }
+
+        // Semantic matches (exclude keyword matches)
+        let keywordIDs = Set(keywordMatches.map(\.id))
+        let semanticMatches: [(entry: HistoryEntry, score: Float)]
+
+        if let engine = historyStore.embeddingEngine {
+            let queryVec = engine.embed(searchText)
+            semanticMatches = historyStore.entries
+                .filter { !keywordIDs.contains($0.id) }
+                .compactMap { entry in
+                    guard let entryVec = historyStore.embeddings[entry.id] else { return nil }
+                    let score = engine.cosineSimilarity(queryVec, entryVec)
+                    return score > 0.1 ? (entry, score) : nil
+                }
+                .sorted { $0.score > $1.score }
+        } else {
+            semanticMatches = []
+        }
+
+        return keywordMatches + semanticMatches.map(\.entry)
     }
 
     var body: some View {
